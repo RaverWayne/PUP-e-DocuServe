@@ -1,0 +1,23 @@
+# ── Local environment / secrets ──────────────────────────────
+# Each teammate's WAMP setup may have different DB credentials.
+# Never commit the real db.php — only the .example template.
+config/db.php
+
+# ── User-uploaded content ────────────────────────────────────
+# Bank slips, profile photos, PDF header/footer templates — this
+# is runtime data, not source code. Grows unbounded, shouldn't be
+# in version control, and may contain real student data.
+assets/uploads/*
+!assets/uploads/.gitkeep
+
+# ── OS / editor junk ──────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# ── Logs (if any get generated) ──────────────────────────────
+*.log
+error_log
