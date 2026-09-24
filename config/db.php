@@ -48,12 +48,6 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    // Try mysqli as fallback for Railway builds without pdo_mysql
-    $link = @mysqli_connect($host, $username, $password, $dbname, $port);
-    if (!$link) {
-        die("Connection failed: " . $e->getMessage() . " (MySQL driver missing?)");
-    }
-    // Create a minimal PDO-compatible wrapper is complex; just report the real error
-    die("Connection failed: " . $e->getMessage() . " — please ensure pdo_mysql extension is loaded");
+    die("Connection failed: " . $e->getMessage() . " — pdo_mysql extension is missing in this PHP build. Contact Railway support or switch buildpack.");
 }
 ?>
