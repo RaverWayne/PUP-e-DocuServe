@@ -1,0 +1,7 @@
+providers = ["php"]
+
+[phases.setup]
+cmds = ["php --version"]
+
+[phases.build]
+cmds = ["echo 'Build complete'"]
