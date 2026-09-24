@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS `admins` (
 -- Dumping data for table `admins`
 --
 
-INSERT INTO `admins` (`id`, `name`, `email`, `password`, `profile_photo`, `role`, `status`, `created_at`, `updated_at`) VALUES
+INSERT INTO `admins` (`id`, `name`, `email`, `password`, `profile_photo`, `role`, `status`, `created_at`, `updated_at`)
+VALUES
 (1, 'Super Administrator', 'superadmin@pup-binan.edu.ph', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin_1_1788166624.png', 'superadmin', 'Active', '2026-03-12 04:57:43', '2026-08-31 08:57:04'),
 (2, 'Registrar Admin', 'admin@pup-binan.edu.ph', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', NULL, 'admin', 'Active', '2026-03-12 04:57:43', '2026-03-12 04:57:43'),
 (3, 'raver', 'raveradmin@gmail.com', '$2y$10$P7BdsTzgsuLJVTPXm7dRm.YkApFnFy8eOqYoG84DUzkweAOB9q6u6', 'admin_3_1788166399.png', 'admin', 'Active', '2026-03-12 11:51:58', '2026-09-03 03:10:25');
@@ -195,7 +196,6 @@ CREATE TABLE IF NOT EXISTS `requests` (
   `purpose` varchar(200) DEFAULT NULL,
   `payment_method` enum('Walk-in (Cashier)','Walk-in (Bank Slip)') DEFAULT NULL,
   `total_amount` decimal(10,2) DEFAULT '0.00',
-  `documentary_stamp` decimal(10,2) DEFAULT '0.00',
   `bank_slip_path` varchar(255) DEFAULT NULL,
   `payment_status` enum('Unpaid','Pending Verification','Paid') DEFAULT 'Unpaid',
   `request_status` enum('Pending','Processing','Ready for Pickup','Claimed','Cancelled') DEFAULT 'Pending',
@@ -219,24 +219,24 @@ CREATE TABLE IF NOT EXISTS `requests` (
 -- Dumping data for table `requests`
 --
 
-INSERT INTO `requests` (`id`, `control_number`, `user_id`, `purpose`, `payment_method`, `total_amount`, `documentary_stamp`, `bank_slip_path`, `payment_status`, `request_status`, `tentative_release_date`, `admin_notes`, `custom_requirements`, `processed_by`, `date_filed`, `date_verified`, `date_released`, `updated_at`) VALUES
-(1, '20260312-0001', 1, 'Scholarship', NULL, 180.00, 30.00, 'slip_1_1773294912.jpg', 'Paid', 'Claimed', '2026-03-13', 'Please Bring the Document Stamp.', NULL, NULL, '2026-03-12 05:45:08', '2026-08-30 16:00:00', NULL, '2026-08-31 08:55:17'),
-(5, '20260312-0002', 1, 'Scholarship', NULL, 180.00, 30.00, 'walkin', 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-03-12 06:04:41', '2026-03-16 16:00:00', NULL, '2026-03-17 13:08:34'),
-(6, '20260312-0003', 1, 'Personal Copy', NULL, 900.00, 150.00, NULL, 'Paid', 'Claimed', '2026-03-16', '', NULL, NULL, '2026-03-12 11:36:07', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:45'),
-(7, '20260312-0004', 1, 'Employment', NULL, 180.00, 30.00, NULL, 'Paid', 'Cancelled', NULL, 'Cancelled by student: change of mind', NULL, NULL, '2026-03-12 12:09:43', '2026-08-30 16:00:00', NULL, '2026-08-31 10:42:04'),
-(8, '20260317-0001', 1, 'Scholarship', NULL, 180.00, 30.00, NULL, 'Paid', 'Claimed', NULL, 'Cancelled by student: wrong document', NULL, NULL, '2026-03-17 12:24:13', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:20'),
-(9, '20260317-0002', 1, 'Scholarship', NULL, 180.00, 30.00, NULL, 'Paid', 'Claimed', NULL, 'Cancelled by student: aaaa', NULL, NULL, '2026-03-17 12:26:05', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:40'),
-(10, '20260317-0003', 1, 'Scholarship', NULL, 60.00, 30.00, 'walkin', 'Paid', 'Claimed', NULL, 'uohjoilijoijio', NULL, NULL, '2026-03-17 12:27:54', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:32'),
-(11, '20260317-0004', 1, 'Personal Copy', NULL, 180.00, 30.00, 'walkin', 'Paid', 'Claimed', '2026-03-20', '', NULL, NULL, '2026-03-17 12:31:30', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:38'),
-(12, '20260317-0005', 2, 'Scholarship', NULL, 180.00, 30.00, 'walkin', 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-03-17 12:59:32', '2026-03-16 16:00:00', NULL, '2026-03-17 13:08:57'),
-(14, '20260318-0001', 1, 'Other', NULL, 1640.00, 120.00, NULL, 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-03-18 03:06:51', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:45'),
-(15, '20260619-0001', 4, 'Scholarship', NULL, 560.00, 60.00, 'slip_15_1781958000.jpg', 'Paid', 'Claimed', '2026-06-22', '', NULL, NULL, '2026-06-19 11:39:09', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:49'),
-(16, '20260831-0001', 1, 'Employment', NULL, 1530.00, 180.00, NULL, 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-08-31 07:42:41', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:09'),
-(17, '20260831-0002', 1, 'Scholarship', 'Walk-in (Cashier)', 150.00, 0.00, 'walkin', 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-08-31 08:38:10', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:56'),
-(18, '20260831-0003', 1, 'Scholarship', 'Walk-in (Cashier)', 150.00, 0.00, 'walkin', 'Paid', 'Claimed', '2026-09-03', '', NULL, NULL, '2026-08-31 08:44:24', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:24'),
-(19, '20260831-0004', 1, 'Others: hehe', 'Walk-in (Cashier)', 150.00, 0.00, NULL, 'Unpaid', 'Pending', '2026-09-07', NULL, NULL, NULL, '2026-08-31 10:43:50', NULL, NULL, '2026-08-31 10:43:50'),
-(20, '20260831-0005', 1, 'Scholarship', 'Walk-in (Bank Slip)', 150.00, 0.00, 'slip_20_1788173124.jpg', 'Pending Verification', 'Pending', '2026-09-03', NULL, NULL, NULL, '2026-08-31 10:44:28', NULL, NULL, '2026-08-31 10:45:24'),
-(22, '20260831-0007', 1, 'Scholarship', 'Walk-in (Bank Slip)', 350.00, 0.00, 'slip_22_1788174828.jpg', 'Pending Verification', 'Pending', '2026-09-29', NULL, NULL, NULL, '2026-08-31 11:13:36', NULL, NULL, '2026-08-31 11:13:48');
+INSERT INTO `requests` (`id`, `control_number`, `user_id`, `purpose`, `payment_method`, `total_amount`, `bank_slip_path`, `payment_status`, `request_status`, `tentative_release_date`, `admin_notes`, `custom_requirements`, `processed_by`, `date_filed`, `date_verified`, `date_released`, `updated_at`) VALUES
+(1, '20260312-0001', 1, 'Scholarship', NULL, 180.00, 'slip_1_1773294912.jpg', 'Paid', 'Claimed', '2026-03-13', 'Please Bring the Document Stamp.', NULL, NULL, '2026-03-12 05:45:08', '2026-08-30 16:00:00', NULL, '2026-08-31 08:55:17'),
+(5, '20260312-0002', 1, 'Scholarship', NULL, 180.00, 'walkin', 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-03-12 06:04:41', '2026-03-16 16:00:00', NULL, '2026-03-17 13:08:34'),
+(6, '20260312-0003', 1, 'Personal Copy', NULL, 900.00, NULL, 'Paid', 'Claimed', '2026-03-16', '', NULL, NULL, '2026-03-12 11:36:07', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:45'),
+(7, '20260312-0004', 1, 'Employment', NULL, 180.00, NULL, 'Paid', 'Cancelled', NULL, 'Cancelled by student: change of mind', NULL, NULL, '2026-03-12 12:09:43', '2026-08-30 16:00:00', NULL, '2026-08-31 10:42:04'),
+(8, '20260317-0001', 1, 'Scholarship', NULL, 180.00, NULL, 'Paid', 'Claimed', NULL, 'Cancelled by student: wrong document', NULL, NULL, '2026-03-17 12:24:13', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:20'),
+(9, '20260317-0002', 1, 'Scholarship', NULL, 180.00, NULL, 'Paid', 'Claimed', NULL, 'Cancelled by student: aaaa', NULL, NULL, '2026-03-17 12:26:05', '2026-08-30 16:00:00', NULL, '2026-03-17 13:08:40'),
+(10, '20260317-0003', 1, 'Scholarship', NULL, 60.00, 'walkin', 'Paid', 'Claimed', NULL, 'uohjoilijoijio', NULL, NULL, '2026-03-17 12:27:54', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:32'),
+(11, '20260317-0004', 1, 'Personal Copy', NULL, 180.00, 'walkin', 'Paid', 'Claimed', '2026-03-20', '', NULL, NULL, '2026-03-17 12:31:30', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:38'),
+(12, '20260317-0005', 2, 'Scholarship', NULL, 180.00, 'walkin', 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-03-17 12:59:32', '2026-03-16 16:00:00', NULL, '2026-03-17 13:08:57'),
+(14, '20260318-0001', 1, 'Other', NULL, 1640.00, NULL, 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-03-18 03:06:51', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:45'),
+(15, '20260619-0001', 4, 'Scholarship', NULL, 560.00, 'slip_15_1781958000.jpg', 'Paid', 'Claimed', '2026-06-22', '', NULL, NULL, '2026-06-19 11:39:09', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:49'),
+(16, '20260831-0001', 1, 'Employment', NULL, 1530.00, NULL, 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-08-31 07:42:41', '2026-08-30 16:00:00', NULL, '2026-08-31 10:41:09'),
+(17, '20260831-0002', 1, 'Scholarship', 'Walk-in (Cashier)', 150.00, 'walkin', 'Paid', 'Claimed', NULL, '', NULL, NULL, '2026-08-31 08:38:10', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:56'),
+(18, '20260831-0003', 1, 'Scholarship', 'Walk-in (Cashier)', 150.00, 'walkin', 'Paid', 'Claimed', '2026-09-03', '', NULL, NULL, '2026-08-31 08:44:24', '2026-08-30 16:00:00', NULL, '2026-08-31 10:40:24'),
+(19, '20260831-0004', 1, 'Others: hehe', 'Walk-in (Cashier)', 150.00, NULL, 'Unpaid', 'Pending', '2026-09-07', NULL, NULL, NULL, '2026-08-31 10:43:50', NULL, NULL, '2026-08-31 10:43:50'),
+(20, '20260831-0005', 1, 'Scholarship', 'Walk-in (Bank Slip)', 150.00, 'slip_20_1788173124.jpg', 'Pending Verification', 'Pending', '2026-09-03', NULL, NULL, NULL, '2026-08-31 10:44:28', NULL, NULL, '2026-08-31 10:45:24'),
+(22, '20260831-0007', 1, 'Scholarship', 'Walk-in (Bank Slip)', 350.00, 'slip_22_1788174828.jpg', 'Pending Verification', 'Pending', '2026-09-29', NULL, NULL, NULL, '2026-08-31 11:13:36', NULL, NULL, '2026-08-31 11:13:48');
 
 -- --------------------------------------------------------
 
@@ -470,3 +470,6 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+CREATE TABLE IF NOT EXISTS request_history (id INT AUTO_INCREMENT PRIMARY KEY, request_id INT NOT NULL, old_status VARCHAR(50), new_status VARCHAR(50), changed_by VARCHAR(100), changed_at DATETIME DEFAULT CURRENT_TIMESTAMP, notes TEXT, INDEX(request_id), INDEX(changed_at)) ENGINE=InnoDB;
+ALTER TABLE documents ADD COLUMN max_quantity_per_request INT DEFAULT NULL;
+CREATE TABLE IF NOT EXISTS login_attempts (id INT AUTO_INCREMENT PRIMARY KEY, ip_address VARCHAR(45) NOT NULL, email VARCHAR(255) DEFAULT NULL, attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_ip_time (ip_address, attempted_at), INDEX idx_email_time (email, attempted_at)) ENGINE=InnoDB;

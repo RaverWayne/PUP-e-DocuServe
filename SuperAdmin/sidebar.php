@@ -28,7 +28,7 @@ $current_page = $current_page ?? '';
         <a href="account_settings.php" class="<?= $current_page==='account'?'active':'' ?>"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>
     <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($_SESSION['admin_name']) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
+        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
+        <div style="font-size:11px; color:#888;">Biñan Campus</div>
     </div>
 </div>

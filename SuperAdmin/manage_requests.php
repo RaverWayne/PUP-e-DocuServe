@@ -1,7 +1,10 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
+require_once '../includes/release_date.php';
 require_once '../includes/mailer.php';
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -14,6 +17,11 @@ $error   = '';
 
 // Handle request update
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF verification
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        http_response_code(403);
+        die('Security check failed. Please go back, refresh the page, and try again.');
+    }
     $request_id           = intval($_POST['request_id'] ?? 0);
     $request_status       = $_POST['request_status'] ?? '';
     $payment_status       = $_POST['payment_status'] ?? '';
@@ -50,6 +58,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $custom_requirements ?: null,
         $request_id
     ]);
+
+    // Log request history for SLA compliance (Wave 3)
+    if ($oldReq && $oldReq['request_status'] !== $request_status) {
+        $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$request_id, $oldReq['request_status'], $request_status, $admin_name, $admin_notes ?: 'Status updated by superadmin']);
+    }
 
     // Notify student on status change
     if ($oldReq && $oldReq['request_status'] !== $request_status && !empty($oldReq['email'])) {
@@ -129,40 +143,40 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --pup-red: #8B0000; }
+        :root { --pup-red: #6D1A1A; --sa-color: #1a237e; }
         body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; margin: 0; }
 
-        .sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: #1a1a1a; color: white; display: flex; flex-direction: column; z-index: 100; overflow-y: auto; }
-        .sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 10px; }
+        .sidebar { position: fixed; top: 0; left: 0; width: 230px; height: 100vh; background: #0d0d0d; color: white; display: flex; flex-direction: column; z-index: 100; overflow-y: auto; }
+        .sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 10px; }
         .sidebar-brand img { height: 36px; }
         .sidebar-brand-text { font-size: 12px; font-weight: 700; line-height: 1.3; color: white; }
         .sidebar-brand-text span { display: block; font-size: 10px; font-weight: 400; opacity: 0.7; }
-        .sidebar-role { padding: 10px 16px; background: var(--pup-red); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .sidebar-role { padding: 10px 16px; background: var(--sa-color); font-size: 11px; font-weight: 600; text-transform: uppercase; }
         .sidebar-nav { flex: 1; padding: 10px 0; }
-        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #ccc; text-decoration: none; font-size: 13px; transition: all 0.2s; }
-        .sidebar-nav a:hover { background: #2a2a2a; color: white; }
-        .sidebar-nav a.active { background: var(--pup-red); color: white; }
-        .sidebar-nav a i { width: 16px; text-align: center; }
-        .sidebar-nav .nav-section { padding: 8px 16px 4px; font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-        .sidebar-footer { padding: 12px 16px; border-top: 1px solid #333; font-size: 12px; color: #888; }
+        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: #bbb; text-decoration: none; font-size: 12px; transition: all 0.2s; }
+        .sidebar-nav a:hover { background: #1a1a1a; color: white; }
+        .sidebar-nav a.active { background: var(--sa-color); color: white; }
+        .sidebar-nav a i { width: 16px; text-align: center; font-size: 12px; }
+        .sidebar-nav .nav-section { padding: 10px 16px 4px; font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .sidebar-footer { padding: 12px 16px; border-top: 1px solid #222; font-size: 12px; color: #777; }
         .sidebar-footer a { color: #f66; text-decoration: none; font-size: 12px; }
         .walkin-badge { background: #f39c12; color: white; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600; }
 
-        .main-content { margin-left: 220px; min-height: 100vh; display: flex; flex-direction: column; }
+        .main-content { margin-left: 230px; min-height: 100vh; display: flex; flex-direction: column; }
         .topbar { background: white; border-bottom: 1px solid #ddd; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 99; }
         .topbar-title { font-size: 15px; font-weight: 700; color: #333; }
         .topbar-user { font-size: 12px; color: #666; }
-        .topbar-user strong { color: var(--pup-red); }
+        .topbar-user strong { color: var(--sa-color); }
         .page-content { padding: 24px; flex: 1; }
 
         .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
         .filter-btn { background: #f0f0f0; border: 1px solid #ccc; color: #555; padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; text-decoration: none; transition: all 0.2s; }
-        .filter-btn:hover, .filter-btn.active { background: var(--pup-red); color: white; border-color: var(--pup-red); }
+        .filter-btn:hover, .filter-btn.active { background: var(--sa-color); color: white; border-color: var(--sa-color); }
 
         .search-box { margin-left: auto; display: flex; gap: 6px; }
         .search-box input { font-size: 13px; padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; width: 220px; }
-        .search-box input:focus { outline: none; border-color: var(--pup-red); }
-        .search-box button { background: var(--pup-red); color: white; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+        .search-box input:focus { outline: none; border-color: var(--sa-color); }
+        .search-box button { background: var(--sa-color); color: white; border: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 
         .section-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; }
         .section-header { background: #f5f5f5; padding: 12px 18px; font-weight: 700; font-size: 13px; color: #333; border-bottom: 1px solid #eee; }
@@ -175,15 +189,15 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
         .data-table tbody tr:last-child td { border-bottom: none; }
 
         .btn-sm-action { padding: 4px 10px; border-radius: 4px; font-size: 11px; border: none; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s; }
-        .btn-manage { background: var(--pup-red); color: white; }
-        .btn-manage:hover { background: #a80000; color: white; }
+        .btn-manage { background: var(--sa-color); color: white; }
+        .btn-manage:hover { background: #283593; color: white; }
 
-        .modal-header { background: var(--pup-red); color: white; }
+        .modal-header { background: var(--sa-color); color: white; }
         .modal-header .btn-close { filter: invert(1); }
 
         .form-label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 3px; }
         .form-control, .form-select { font-size: 13px; border: 1px solid #ccc; border-radius: 4px; padding: 6px 10px; }
-        .form-control:focus, .form-select:focus { border-color: var(--pup-red); box-shadow: 0 0 0 2px rgba(139,0,0,0.1); }
+        .form-control:focus, .form-select:focus { border-color: var(--sa-color); box-shadow: 0 0 0 2px rgba(26,35,126,0.1); }
 
         .detail-row { display: flex; padding: 7px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
         .detail-row:last-child { border-bottom: none; }
@@ -204,8 +218,8 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
 <!-- MAIN -->
 <div class="main-content">
     <div class="topbar">
-        <div class="topbar-title"><i class="fas fa-file-alt me-2" style="color:var(--pup-red);"></i>Manage Requests</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <div class="topbar-title"><i class="fas fa-file-alt me-2" style="color:var(--sa-color);"></i>Manage Requests</div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -234,7 +248,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
         <!-- TABLE -->
         <div class="section-card">
             <div class="section-header">
-                <i class="fas fa-list me-2" style="color:var(--pup-red);"></i>
+                <i class="fas fa-list me-2" style="color:var(--sa-color);"></i>
                 Requests
                 <span style="font-weight:400; font-size:12px; color:#888; margin-left:8px;">(<?= count($requests) ?> records)</span>
             </div>
@@ -248,13 +262,14 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                             <th>Purpose</th>
                             <th>Payment</th>
                             <th>Status</th>
+                            <th>SLA Status</th>
                             <th>Date Filed</th>
                             <th style="text-align:center;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($requests)): ?>
-                            <tr><td colspan="8" style="text-align:center; color:#aaa; padding:30px;">No requests found.</td></tr>
+                            <tr><td colspan="9" style="text-align:center; color:#aaa; padding:30px;">No requests found.</td></tr>
                         <?php else: ?>
                         <?php foreach ($requests as $r): ?>
                         <tr>
@@ -286,10 +301,24 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                                 ?>
                                 <span class="badge bg-<?= $sc ?>"><?= $r['request_status'] ?></span>
                             </td>
+                            <td>
+                                <?php
+                                $working_days = calculateWorkingDays($r['date_filed']);
+                                if ($r['request_status'] === 'Claimed') {
+                                    echo '<span class="badge bg-secondary" title="Completed"><i class="fas fa-check-circle me-1"></i> Completed (' . $working_days . 'd)</span>';
+                                } elseif ($r['request_status'] === 'Cancelled') {
+                                    echo '<span class="badge bg-secondary">Cancelled</span>';
+                                } elseif ($working_days <= 5) {
+                                    echo '<span class="badge bg-success" title="' . $working_days . ' working days elapsed (SLA: 5 days)"><i class="fas fa-clock me-1"></i> On Track (' . $working_days . 'd)</span>';
+                                } else {
+                                    echo '<span class="badge bg-danger" title="' . $working_days . ' working days elapsed (SLA: 5 days)"><i class="fas fa-exclamation-triangle me-1"></i> Delayed (' . $working_days . 'd)</span>';
+                                }
+                                ?>
+                            </td>
                             <td><?= date('m/d/Y', strtotime($r['date_filed'])) ?></td>
                             <td style="text-align:center;">
                                 <button class="btn-sm-action btn-manage"
-                                    onclick="openManage(<?= htmlspecialchars(json_encode($r)) ?>, <?= htmlspecialchars(json_encode([])) ?>)">
+                                    onclick="openManage(<?= htmlspecialchars(json_encode(array_merge($r, ['working_days' => $working_days]))) ?>, <?= htmlspecialchars(json_encode([])) ?>)">
                                     <i class="fas fa-edit"></i> Manage
                                 </button>
                             </td>
@@ -303,7 +332,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
     </div>
 
     <div class="footer-admin">
-        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Admin
+        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Super Admin
     </div>
 </div>
 
@@ -316,12 +345,13 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
+                <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="mgmt_id">
 
                     <!-- Student Info -->
                     <div class="mb-3 p-3" style="background:#fafafa; border-radius:6px; border:1px solid #eee;">
-                        <div style="font-weight:700; margin-bottom:8px; color:var(--pup-red);">Student Information</div>
+                        <div style="font-weight:700; margin-bottom:8px; color:var(--sa-color);">Student Information</div>
                         <div class="row g-2">
                             <div class="col-md-6">
                                 <div class="detail-row"><div class="detail-label">Name:</div><div id="mgmt_name"></div></div>
@@ -332,6 +362,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                                 <div class="detail-row"><div class="detail-label">Mobile:</div><div id="mgmt_mobile"></div></div>
                                 <div class="detail-row"><div class="detail-label">Course:</div><div id="mgmt_course"></div></div>
                                 <div class="detail-row"><div class="detail-label">Purpose:</div><div id="mgmt_purpose"></div></div>
+                                <div class="detail-row"><div class="detail-label">SLA Turnaround:</div><div id="mgmt_sla"></div></div>
                             </div>
                         </div>
                     </div>
@@ -402,7 +433,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-sm" style="background:var(--pup-red); color:white;">
+                    <button type="submit" class="btn btn-sm" style="background:var(--sa-color); color:white;">
                         <i class="fas fa-save me-1"></i> Save Changes
                     </button>
                 </div>
@@ -421,6 +452,21 @@ function openManage(req) {
     document.getElementById('mgmt_mobile').textContent = req.mobile_number || 'N/A';
     document.getElementById('mgmt_course').textContent = req.course || 'N/A';
     document.getElementById('mgmt_purpose').textContent = req.purpose || 'N/A';
+
+    // SLA turnaround display
+    const days = req.working_days || 0;
+    let slaHtml = '';
+    if (req.request_status === 'Claimed') {
+        slaHtml = `<span class="badge bg-secondary"><i class="fas fa-check-circle me-1"></i> Completed (${days} working days)</span>`;
+    } else if (req.request_status === 'Cancelled') {
+        slaHtml = `<span class="badge bg-secondary">Cancelled</span>`;
+    } else if (days <= 5) {
+        slaHtml = `<span class="badge bg-success"><i class="fas fa-clock me-1"></i> On Track (${days} / 5 working days)</span>`;
+    } else {
+        slaHtml = `<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> Delayed (${days} working days — exceeds 5d SLA)</span>`;
+    }
+    document.getElementById('mgmt_sla').innerHTML = slaHtml;
+
     document.getElementById('mgmt_docs').textContent   = req.documents || 'N/A';
     document.getElementById('mgmt_total').value        = '₱ ' + parseFloat(req.total_amount).toFixed(2);
     document.getElementById('mgmt_notes').value        = req.admin_notes || '';

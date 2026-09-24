@@ -1,3 +1,46 @@
+# ============================================================
+# PUP e-DocuServe Apache Security & Server Configuration
+# ============================================================
+
+# Disable Directory Browsing
+Options -Indexes
+
+# Prevent access to hidden files and sensitive project files
+<FilesMatch "^\.|\.(env|sql|jsonl|md|log|git|example)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Protect includes, config, and database directories from direct web browsing
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Enforce HTTPS on production (skip localhost & 127.0.0.1 for local WAMP)
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP_HOST} !=localhost
+    RewriteCond %{HTTP_HOST} !^127\.0\.0\.1
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# Security Headers
 <IfModule mod_headers.c>
-Header set X-Content-Type-Options "nosniff"
+    # Prevent clickjacking
+    Header set X-Frame-Options "SAMEORIGIN"
+
+    # Prevent MIME type sniffing
+    Header set X-Content-Type-Options "nosniff"
+
+    # XSS Protection
+    Header set X-XSS-Protection "1; mode=block"
+
+    # Referrer Policy
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Restrict permissions
+    Header set Permissions-Policy "geolocation=(), microphone=(), camera=()"
 </IfModule>

@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -10,6 +12,10 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
 $admin_name  = $_SESSION['admin_name'];
 $success = '';
 $error   = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
+}
 
 // Add admin
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
@@ -25,10 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
         $error = "Invalid email format.";
     } elseif (!str_ends_with(strtolower($email), '@pup.edu.ph')) {
         $error = "Admin email must end with @pup.edu.ph.";
-    } elseif (!preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/[0-9]/', $password)) {
-        $error = "Password must contain at least 1 uppercase letter, 1 lowercase letter, and 1 number.";
-    } elseif (strlen($password) < 6) {
-        $error = "Password must be at least 6 characters.";
+    } elseif (strlen($password) < 8) {
+        $error = "Password must be at least 8 characters.";
+    } elseif (!preg_match('/[A-Z]/', $password)) {
+        $error = "Password must contain at least 1 uppercase letter.";
+    } elseif (!preg_match('/[a-z]/', $password)) {
+        $error = "Password must contain at least 1 lowercase letter.";
+    } elseif (!preg_match('/[0-9]/', $password)) {
+        $error = "Password must contain at least 1 number.";
     } else {
         $check = $pdo->prepare("SELECT id FROM admins WHERE email = ?");
         $check->execute([$email]);
@@ -61,10 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'toggle') {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'reset_password') {
     $id       = intval($_POST['admin_id']);
     $new_pass = $_POST['new_password'] ?? '';
-    if (!preg_match('/[A-Z]/', $new_pass) || !preg_match('/[a-z]/', $new_pass) || !preg_match('/[0-9]/', $new_pass)) {
-        $error = "Password must contain at least 1 uppercase letter, 1 lowercase letter, and 1 number.";
-    } elseif (strlen($new_pass) < 6) {
-        $error = "Password must be at least 6 characters.";
+    if (strlen($new_pass) < 8) {
+        $error = "Password must be at least 8 characters.";
+    } elseif (!preg_match('/[A-Z]/', $new_pass)) {
+        $error = "Password must contain at least 1 uppercase letter.";
+    } elseif (!preg_match('/[a-z]/', $new_pass)) {
+        $error = "Password must contain at least 1 lowercase letter.";
+    } elseif (!preg_match('/[0-9]/', $new_pass)) {
+        $error = "Password must contain at least 1 number.";
     } else {
         $pdo->prepare("UPDATE admins SET password = ? WHERE id = ? AND role = 'admin'")->execute([password_hash($new_pass, PASSWORD_BCRYPT), $id]);
         $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target) VALUES (?, ?, ?, ?, ?)")
@@ -131,18 +145,27 @@ $current_page = 'admins';
         .modal-header .btn-close { filter: invert(1); }
         .footer-admin { background: white; border-top: 1px solid #eee; padding: 12px 24px; text-align: center; font-size: 12px; color: #aaa; }
         .password-wrapper { position: relative; }
-        .password-wrapper .toggle-pass { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa; }
+        .password-wrapper .toggle-pass { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa; font-size: 13px; }
         .password-wrapper .toggle-pass:hover { color: var(--sa-color); }
+        .password-wrapper .form-control { padding-right: 36px; }
+
+        .pwd-checklist { list-style: none; padding: 8px 12px; margin-top: 8px; margin-bottom: 0; font-size: 11px; background: #fafafa; border: 1px solid #eee; border-radius: 4px; }
+        .pwd-req { margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: #777; transition: all 0.2s; }
+        .pwd-req:last-child { margin-bottom: 0; }
+        .pwd-req.valid { color: #27ae60; font-weight: 600; }
+        .pwd-req.valid i { color: #27ae60; }
+        .pwd-req.invalid { color: #888; }
+        .pwd-req.invalid i { color: #bbb; }
     </style>
 </head>
 <body>
 
-<?php include 'sidebar.php'; ?>
+<?php $current_page = 'admins'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-user-shield me-2" style="color:var(--sa-color);"></i>Manage Admins</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -159,33 +182,39 @@ $current_page = 'admins';
             <div class="section-header">Add New Admin Account</div>
             <div class="section-body">
                 <form method="POST">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="action" value="add">
                     <div class="row g-3">
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <label class="form-label">First Name <span style="color:var(--pup-red);">*</span></label>
                             <input type="text" name="first_name" class="form-control" placeholder="First Name" required>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <label class="form-label">Last Name <span style="color:var(--pup-red);">*</span></label>
                             <input type="text" name="last_name" class="form-control" placeholder="Last Name" required>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-6">
                             <label class="form-label">Email <span style="color:var(--pup-red);">*</span></label>
                             <input type="email" name="email" class="form-control"
                                 placeholder="username@pup.edu.ph" required>
                             <div style="font-size:11px; color:#888; margin-top:2px;">Must end in @pup.edu.ph</div>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-6">
                             <label class="form-label">Password <span style="color:var(--pup-red);">*</span></label>
                             <div class="password-wrapper">
                                 <input type="password" name="password" id="addPass" class="form-control"
-                                    placeholder="Min 6 chars, upper + lower + number" required>
+                                    placeholder="New Password" required autocomplete="new-password">
                                 <i class="fas fa-eye toggle-pass" onclick="togglePass('addPass',this)"></i>
                             </div>
-                            <div style="font-size:11px; color:#888; margin-top:2px;">1 uppercase, 1 lowercase, 1 number required.</div>
+                            <ul class="pwd-checklist" id="addPwdChecklist" aria-live="polite">
+                                <li id="add-req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
+                                <li id="add-req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
+                                <li id="add-req-lower" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 lowercase letter (a-z)</li>
+                                <li id="add-req-num" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 number (0-9)</li>
+                            </ul>
                         </div>
-                        <div class="col-md-2 d-flex align-items-end">
-                            <button type="submit" class="btn-add w-100">
+                        <div class="col-md-6 d-flex align-items-end">
+                            <button type="submit" class="btn-add" style="padding:8px 24px;">
                                 <i class="fas fa-plus me-2"></i>Add Admin
                             </button>
                         </div>
@@ -230,6 +259,7 @@ $current_page = 'admins';
                                 <div style="display:flex; gap:5px; justify-content:center;">
                                     <!-- Toggle Status -->
                                     <form method="POST" style="display:inline;">
+                                        <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="toggle">
                                         <input type="hidden" name="admin_id" value="<?= $a['id'] ?>">
                                         <input type="hidden" name="new_status" value="<?= $a['status'] === 'Active' ? 'Inactive' : 'Active' ?>">
@@ -269,15 +299,22 @@ $current_page = 'admins';
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?= csrf_field() ?>
                 <input type="hidden" name="action" value="reset_password">
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="admin_id" id="resetAdminId">
                     <p class="mb-3">Resetting password for: <strong id="resetAdminName"></strong></p>
                     <label class="form-label">New Password <span style="color:var(--pup-red);">*</span></label>
                     <div class="password-wrapper">
-                        <input type="password" name="new_password" id="resetPass" class="form-control" placeholder="New password (min 6 chars)" required>
+                        <input type="password" name="new_password" id="resetPass" class="form-control" placeholder="New Password" required autocomplete="new-password">
                         <i class="fas fa-eye toggle-pass" onclick="togglePass('resetPass',this)"></i>
                     </div>
+                    <ul class="pwd-checklist" id="resetPwdChecklist" aria-live="polite">
+                        <li id="reset-req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
+                        <li id="reset-req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
+                        <li id="reset-req-lower" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 lowercase letter (a-z)</li>
+                        <li id="reset-req-num" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 number (0-9)</li>
+                    </ul>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -295,14 +332,60 @@ $current_page = 'admins';
 function openReset(id, name) {
     document.getElementById('resetAdminId').value       = id;
     document.getElementById('resetAdminName').textContent = name;
+    const resetInput = document.getElementById('resetPass');
+    if (resetInput) {
+        resetInput.value = '';
+        checkResetPasswordComplexity();
+    }
     new bootstrap.Modal(document.getElementById('resetModal')).show();
 }
+
 function togglePass(id, icon) {
     const input = document.getElementById(id);
-    input.type = input.type === 'password' ? 'text' : 'password';
-    icon.classList.toggle('fa-eye');
-    icon.classList.toggle('fa-eye-slash');
+    if (input) {
+        input.type = input.type === 'password' ? 'text' : 'password';
+        icon.classList.toggle('fa-eye');
+        icon.classList.toggle('fa-eye-slash');
+    }
 }
+
+function updateRequirement(elemId, isValid) {
+    const elem = document.getElementById(elemId);
+    if (!elem) return;
+    const icon = elem.querySelector('i');
+    if (isValid) {
+        elem.classList.remove('invalid');
+        elem.classList.add('valid');
+        if (icon) icon.className = 'fas fa-circle-check';
+    } else {
+        elem.classList.remove('valid');
+        elem.classList.add('invalid');
+        if (icon) icon.className = 'fas fa-circle-xmark';
+    }
+}
+
+function checkAddPasswordComplexity() {
+    const input = document.getElementById('addPass');
+    if (!input) return;
+    const val = input.value;
+    updateRequirement('add-req-len', val.length >= 8);
+    updateRequirement('add-req-upper', /[A-Z]/.test(val));
+    updateRequirement('add-req-lower', /[a-z]/.test(val));
+    updateRequirement('add-req-num', /[0-9]/.test(val));
+}
+
+function checkResetPasswordComplexity() {
+    const input = document.getElementById('resetPass');
+    if (!input) return;
+    const val = input.value;
+    updateRequirement('reset-req-len', val.length >= 8);
+    updateRequirement('reset-req-upper', /[A-Z]/.test(val));
+    updateRequirement('reset-req-lower', /[a-z]/.test(val));
+    updateRequirement('reset-req-num', /[0-9]/.test(val));
+}
+
+document.getElementById('addPass')?.addEventListener('input', checkAddPasswordComplexity);
+document.getElementById('resetPass')?.addEventListener('input', checkResetPasswordComplexity);
 </script>
 </body>
 </html>

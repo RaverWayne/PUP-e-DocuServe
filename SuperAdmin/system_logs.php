@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -76,7 +77,7 @@ $current_page = 'logs';
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-history me-2" style="color:var(--sa-color);"></i>System Logs</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">

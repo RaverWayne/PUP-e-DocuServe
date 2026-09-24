@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -12,9 +14,27 @@ $success = '';
 
 // Confirm walk-in payment
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF verification
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        http_response_code(403);
+        die('Security check failed. Please go back, refresh the page, and try again.');
+    }
+
     $request_id = intval($_POST['request_id'] ?? 0);
+
+    // Fetch current status for audit history
+    $curStmt = $pdo->prepare("SELECT request_status FROM requests WHERE id = ?");
+    $curStmt->execute([$request_id]);
+    $curReq = $curStmt->fetch();
+
     $stmt = $pdo->prepare("UPDATE requests SET payment_status = 'Paid', date_verified = ? WHERE id = ? AND bank_slip_path = 'walkin'");
     $stmt->execute([date('Y-m-d'), $request_id]);
+
+    if ($curReq) {
+        $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$request_id, $curReq['request_status'], $curReq['request_status'], $admin_name, 'Walk-in payment verified and confirmed at Registrar office']);
+    }
+
     $success = "Walk-in payment confirmed successfully.";
 }
 
@@ -40,27 +60,27 @@ $walkins = $pdo->query("
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --pup-red: #8B0000; }
+        :root { --pup-red: #6D1A1A; --sa-color: #1a237e; }
         body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; margin: 0; }
-        .sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: #1a1a1a; color: white; display: flex; flex-direction: column; z-index: 100; overflow-y: auto; }
-        .sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 10px; }
+        .sidebar { position: fixed; top: 0; left: 0; width: 230px; height: 100vh; background: #0d0d0d; color: white; display: flex; flex-direction: column; z-index: 100; overflow-y: auto; }
+        .sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 10px; }
         .sidebar-brand img { height: 36px; }
         .sidebar-brand-text { font-size: 12px; font-weight: 700; line-height: 1.3; color: white; }
         .sidebar-brand-text span { display: block; font-size: 10px; font-weight: 400; opacity: 0.7; }
-        .sidebar-role { padding: 10px 16px; background: var(--pup-red); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .sidebar-role { padding: 10px 16px; background: var(--sa-color); font-size: 11px; font-weight: 600; text-transform: uppercase; }
         .sidebar-nav { flex: 1; padding: 10px 0; }
-        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #ccc; text-decoration: none; font-size: 13px; transition: all 0.2s; }
-        .sidebar-nav a:hover { background: #2a2a2a; color: white; }
-        .sidebar-nav a.active { background: var(--pup-red); color: white; }
-        .sidebar-nav a i { width: 16px; text-align: center; }
-        .sidebar-nav .nav-section { padding: 8px 16px 4px; font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-        .sidebar-footer { padding: 12px 16px; border-top: 1px solid #333; font-size: 12px; color: #888; }
-        .sidebar-footer a { color: #f66; text-decoration: none; }
-        .main-content { margin-left: 220px; min-height: 100vh; display: flex; flex-direction: column; }
+        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: #bbb; text-decoration: none; font-size: 12px; transition: all 0.2s; }
+        .sidebar-nav a:hover { background: #1a1a1a; color: white; }
+        .sidebar-nav a.active { background: var(--sa-color); color: white; }
+        .sidebar-nav a i { width: 16px; text-align: center; font-size: 12px; }
+        .sidebar-nav .nav-section { padding: 10px 16px 4px; font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .sidebar-footer { padding: 12px 16px; border-top: 1px solid #222; font-size: 12px; color: #777; }
+        .sidebar-footer a { color: #f66; text-decoration: none; font-size: 12px; }
+        .main-content { margin-left: 230px; min-height: 100vh; display: flex; flex-direction: column; }
         .topbar { background: white; border-bottom: 1px solid #ddd; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 99; }
         .topbar-title { font-size: 15px; font-weight: 700; color: #333; }
         .topbar-user { font-size: 12px; color: #666; }
-        .topbar-user strong { color: var(--pup-red); }
+        .topbar-user strong { color: var(--sa-color); }
         .page-content { padding: 24px; flex: 1; }
         .section-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; }
         .section-header { background: #f5f5f5; padding: 12px 18px; font-weight: 700; font-size: 13px; color: #333; border-bottom: 1px solid #eee; }
@@ -72,7 +92,7 @@ $walkins = $pdo->query("
         .btn-confirm { background: #27ae60; color: white; border: none; padding: 5px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; transition: background 0.2s; }
         .btn-confirm:hover { background: #219a52; }
         .footer-admin { background: white; border-top: 1px solid #eee; padding: 12px 24px; text-align: center; font-size: 12px; color: #aaa; }
-        .modal-header { background: var(--pup-red); color: white; }
+        .modal-header { background: var(--sa-color); color: white; }
         .modal-header .btn-close { filter: invert(1); }
     </style>
 </head>
@@ -81,8 +101,8 @@ $walkins = $pdo->query("
 <?php $current_page = 'walkin'; include 'sidebar.php'; ?>
 <div class="main-content">
     <div class="topbar">
-        <div class="topbar-title"><i class="fas fa-walking me-2" style="color:var(--pup-red);"></i>Walk-in Payments</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <div class="topbar-title"><i class="fas fa-walking me-2" style="color:var(--sa-color);"></i>Walk-in Payments</div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -95,7 +115,7 @@ $walkins = $pdo->query("
 
         <div class="section-card">
             <div class="section-header">
-                <i class="fas fa-walking me-2" style="color:var(--pup-red);"></i>
+                <i class="fas fa-walking me-2" style="color:var(--sa-color);"></i>
                 Students who will present bank slip in person
                 <span style="font-weight:400; font-size:12px; color:#888; margin-left:8px;">(<?= count($walkins) ?> pending)</span>
             </div>
@@ -156,7 +176,7 @@ $walkins = $pdo->query("
     </div>
 
     <div class="footer-admin">
-        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Admin
+        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Super Admin
     </div>
 </div>
 
@@ -169,6 +189,7 @@ $walkins = $pdo->query("
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
+                <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="confirmReqId">
                     <p>Control Number: <strong id="confirmCtrl"></strong></p>

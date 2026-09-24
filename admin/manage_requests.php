@@ -1,7 +1,10 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 require_once '../includes/mailer.php';
+require_once '../includes/release_date.php';
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
     header("Location: ../auth/login.php");
@@ -14,6 +17,12 @@ $error   = '';
 
 // Handle request update
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF verification
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        http_response_code(403);
+        die('Security check failed. Please go back, refresh the page, and try again.');
+    }
+
     $request_id           = intval($_POST['request_id'] ?? 0);
     $request_status       = $_POST['request_status'] ?? '';
     $payment_status       = $_POST['payment_status'] ?? '';
@@ -50,6 +59,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $custom_requirements ?: null,
         $request_id
     ]);
+
+    // Log request history for SLA compliance (Wave 3)
+    if ($oldReq && $oldReq['request_status'] !== $request_status) {
+        $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$request_id, $oldReq['request_status'], $request_status, $admin_name, $admin_notes ?: 'Status updated by admin']);
+    }
 
     // Notify student on status change
     if ($oldReq && $oldReq['request_status'] !== $request_status && !empty($oldReq['email'])) {
@@ -217,8 +232,8 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
         <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>
     <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
+        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
+        <div style="font-size:11px; color:#888;">Biñan Campus</div>
     </div>
 </div>
 
@@ -226,7 +241,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-file-alt me-2" style="color:var(--pup-red);"></i>Manage Requests</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -269,13 +284,14 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                             <th>Purpose</th>
                             <th>Payment</th>
                             <th>Status</th>
+                            <th>SLA Status</th>
                             <th>Date Filed</th>
                             <th style="text-align:center;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($requests)): ?>
-                            <tr><td colspan="8" style="text-align:center; color:#aaa; padding:30px;">No requests found.</td></tr>
+                            <tr><td colspan="9" style="text-align:center; color:#aaa; padding:30px;">No requests found.</td></tr>
                         <?php else: ?>
                         <?php foreach ($requests as $r): ?>
                         <tr>
@@ -307,10 +323,24 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                                 ?>
                                 <span class="badge bg-<?= $sc ?>"><?= $r['request_status'] ?></span>
                             </td>
+                            <td>
+                                <?php
+                                $working_days = calculateWorkingDays($r['date_filed']);
+                                if ($r['request_status'] === 'Claimed') {
+                                    echo '<span class="badge bg-secondary" title="Completed"><i class="fas fa-check-circle me-1"></i> Completed (' . $working_days . 'd)</span>';
+                                } elseif ($r['request_status'] === 'Cancelled') {
+                                    echo '<span class="badge bg-secondary">Cancelled</span>';
+                                } elseif ($working_days <= 5) {
+                                    echo '<span class="badge bg-success" title="' . $working_days . ' working days elapsed (SLA: 5 days)"><i class="fas fa-clock me-1"></i> On Track (' . $working_days . 'd)</span>';
+                                } else {
+                                    echo '<span class="badge bg-danger" title="' . $working_days . ' working days elapsed (SLA: 5 days)"><i class="fas fa-exclamation-triangle me-1"></i> Delayed (' . $working_days . 'd)</span>';
+                                }
+                                ?>
+                            </td>
                             <td><?= date('m/d/Y', strtotime($r['date_filed'])) ?></td>
                             <td style="text-align:center;">
                                 <button class="btn-sm-action btn-manage"
-                                    onclick="openManage(<?= htmlspecialchars(json_encode($r)) ?>, <?= htmlspecialchars(json_encode([])) ?>)">
+                                    onclick="openManage(<?= htmlspecialchars(json_encode(array_merge($r, ['working_days' => $working_days]))) ?>, <?= htmlspecialchars(json_encode([])) ?>)">
                                     <i class="fas fa-edit"></i> Manage
                                 </button>
                             </td>
@@ -337,6 +367,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
+                <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="mgmt_id">
 
@@ -353,6 +384,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                                 <div class="detail-row"><div class="detail-label">Mobile:</div><div id="mgmt_mobile"></div></div>
                                 <div class="detail-row"><div class="detail-label">Course:</div><div id="mgmt_course"></div></div>
                                 <div class="detail-row"><div class="detail-label">Purpose:</div><div id="mgmt_purpose"></div></div>
+                                <div class="detail-row"><div class="detail-label">SLA Turnaround:</div><div id="mgmt_sla"></div></div>
                             </div>
                         </div>
                     </div>
@@ -442,6 +474,21 @@ function openManage(req) {
     document.getElementById('mgmt_mobile').textContent = req.mobile_number || 'N/A';
     document.getElementById('mgmt_course').textContent = req.course || 'N/A';
     document.getElementById('mgmt_purpose').textContent = req.purpose || 'N/A';
+
+    // SLA turnaround display
+    const days = req.working_days || 0;
+    let slaHtml = '';
+    if (req.request_status === 'Claimed') {
+        slaHtml = `<span class="badge bg-secondary"><i class="fas fa-check-circle me-1"></i> Completed (${days} working days)</span>`;
+    } else if (req.request_status === 'Cancelled') {
+        slaHtml = `<span class="badge bg-secondary">Cancelled</span>`;
+    } else if (days <= 5) {
+        slaHtml = `<span class="badge bg-success"><i class="fas fa-clock me-1"></i> On Track (${days} / 5 working days)</span>`;
+    } else {
+        slaHtml = `<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> Delayed (${days} working days — exceeds 5d SLA)</span>`;
+    }
+    document.getElementById('mgmt_sla').innerHTML = slaHtml;
+
     document.getElementById('mgmt_docs').textContent   = req.documents || 'N/A';
     document.getElementById('mgmt_total').value        = '₱ ' + parseFloat(req.total_amount).toFixed(2);
     document.getElementById('mgmt_notes').value        = req.admin_notes || '';

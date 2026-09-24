@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
     header("Location: ../auth/login.php");
@@ -9,12 +11,31 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
 
 $admin_name = $_SESSION['admin_name'];
 $success = '';
+$error = '';
 
 // Confirm walk-in payment
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF verification
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        http_response_code(403);
+        die('Security check failed. Please go back, refresh the page, and try again.');
+    }
+
     $request_id = intval($_POST['request_id'] ?? 0);
+
+    // Fetch current status for audit history
+    $curStmt = $pdo->prepare("SELECT request_status FROM requests WHERE id = ?");
+    $curStmt->execute([$request_id]);
+    $curReq = $curStmt->fetch();
+
     $stmt = $pdo->prepare("UPDATE requests SET payment_status = 'Paid', date_verified = ? WHERE id = ? AND bank_slip_path = 'walkin'");
     $stmt->execute([date('Y-m-d'), $request_id]);
+
+    if ($curReq) {
+        $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$request_id, $curReq['request_status'], $curReq['request_status'], $admin_name, 'Walk-in payment verified and confirmed at Registrar office']);
+    }
+
     $success = "Walk-in payment confirmed successfully.";
 }
 
@@ -95,15 +116,15 @@ $walkins = $pdo->query("
         <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>
     <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
+        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
+        <div style="font-size:11px; color:#888;">Biñan Campus</div>
     </div>
 </div>
 
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-walking me-2" style="color:var(--pup-red);"></i>Walk-in Payments</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -190,6 +211,7 @@ $walkins = $pdo->query("
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
+                <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="confirmReqId">
                     <p>Control Number: <strong id="confirmCtrl"></strong></p>

@@ -16,49 +16,138 @@ if (isset($_SESSION['admin_id'])) {
 $error = '';
 $timeout = isset($_GET['timeout']) && $_GET['timeout'] == 1;
 
+// Rate limiting parameters
+$max_attempts = 5;
+$lockout_minutes = 15;
+$ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+// Clean up old attempts older than 24h
+try {
+    $pdo->query("DELETE FROM login_attempts WHERE attempted_at < (NOW() - INTERVAL 24 HOUR)");
+} catch (Exception $e) {
+    // Ignore cleanup error if table is busy
+}
+
+// Check IP-level lockout status
+$ipStmt = $pdo->prepare("
+    SELECT COUNT(*) as attempt_count, MAX(attempted_at) as last_attempt
+    FROM login_attempts
+    WHERE ip_address = ? AND attempted_at > (NOW() - INTERVAL 15 MINUTE)
+");
+$ipStmt->execute([$ip]);
+$ipStatus = $ipStmt->fetch();
+
+$is_ip_locked = false;
+$ip_lockout_remaining = 0;
+
+if ($ipStatus && $ipStatus['attempt_count'] >= $max_attempts) {
+    $last_time = strtotime($ipStatus['last_attempt']);
+    $lockout_end = $last_time + ($lockout_minutes * 60);
+    $ip_lockout_remaining = $lockout_end - time();
+    if ($ip_lockout_remaining > 0) {
+        $is_ip_locked = true;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if (empty($email) || empty($password)) {
+    if ($is_ip_locked) {
+        $mins = ceil($ip_lockout_remaining / 60);
+        $error = "Too many failed login attempts. Your IP is temporarily locked out. Please wait $mins minute(s) before trying again.";
+    } elseif (empty($email) || empty($password)) {
         $error = "Please enter your email and password.";
     } else {
-        // Fetch regardless of status (need distinct messages below)
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
+        // Check email-level lockout status
+        $emailStmt = $pdo->prepare("
+            SELECT COUNT(*) as attempt_count, MAX(attempted_at) as last_attempt
+            FROM login_attempts
+            WHERE email = ? AND attempted_at > (NOW() - INTERVAL 15 MINUTE)
+        ");
+        $emailStmt->execute([$email]);
+        $emailStatus = $emailStmt->fetch();
 
-        if ($user && password_verify($password, $user['password'])) {
-            // Only block Rejected accounts
-            if ($user['verification_status'] === 'Rejected') {
-                $error = "Your account registration has been rejected. Please contact the Registrar's Office for assistance.";
-            } elseif (($user['status'] ?? 'Active') !== 'Active') {
-                $error = "Your account has been deactivated. Please contact the Registrar's Office.";
-            } else {
-                // Allow both Active AND Pending Verification to log in
-                $_SESSION['user_id']                  = $user['id'];
-                $_SESSION['user_name']                = $user['first_name'] . ' ' . $user['last_name'];
-                $_SESSION['user_email']               = $user['email'];
-                $_SESSION['user_verification_status'] = $user['verification_status'];
-                $_SESSION['last_activity']            = time();
-                header("Location: ../student/index.php");
-                exit();
+        $is_email_locked = false;
+        $email_lockout_remaining = 0;
+
+        if ($emailStatus && $emailStatus['attempt_count'] >= $max_attempts) {
+            $last_time = strtotime($emailStatus['last_attempt']);
+            $lockout_end = $last_time + ($lockout_minutes * 60);
+            $email_lockout_remaining = $lockout_end - time();
+            if ($email_lockout_remaining > 0) {
+                $is_email_locked = true;
             }
+        }
+
+        if ($is_email_locked) {
+            $mins = ceil($email_lockout_remaining / 60);
+            $error = "Too many failed login attempts for this account. Please wait $mins minute(s) before trying again.";
         } else {
-            // Not a student match — check admins
-            $stmt = $pdo->prepare("SELECT * FROM admins WHERE email = ? AND status = 'Active'");
+            // Check student account in users table
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
             $stmt->execute([$email]);
-            $admin = $stmt->fetch();
+            $user = $stmt->fetch();
 
-            if ($admin && password_verify($password, $admin['password'])) {
-                $_SESSION['admin_id']   = $admin['id'];
-                $_SESSION['admin_name'] = $admin['name'];
-                $_SESSION['admin_role'] = $admin['role'];
-                header("Location: ../" . ($admin['role'] === 'superadmin' ? 'superadmin' : 'admin') . "/index.php");
-                exit();
+            if ($user && password_verify($password, $user['password'])) {
+                // Check maintenance mode for students
+                $maintStmt = $pdo->query("SELECT setting_value FROM system_settings WHERE setting_key = 'maintenance_mode'");
+                $maintenance = $maintStmt ? ($maintStmt->fetchColumn() === '1') : false;
+
+                if ($maintenance) {
+                    $error = "The system is currently undergoing scheduled maintenance. Student access is temporarily unavailable.";
+                } elseif ($user['verification_status'] === 'Pending Verification') {
+                    $error = "Your account is pending administrator verification. You will be able to log in once your registration is approved.";
+                } elseif ($user['verification_status'] === 'Rejected') {
+                    $error = "Your account registration has been rejected. Please contact the Registrar's Office for assistance.";
+                } elseif (($user['status'] ?? 'Active') !== 'Active' || $user['verification_status'] !== 'Active') {
+                    $error = "Your account is not active. Please contact the Registrar's Office.";
+                } else {
+                    // Success! Clear failed attempts
+                    $pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?")->execute([$ip, $email]);
+
+                    $_SESSION['user_id']                  = $user['id'];
+                    $_SESSION['user_name']                = $user['first_name'] . ' ' . $user['last_name'];
+                    $_SESSION['user_email']               = $user['email'];
+                    $_SESSION['user_verification_status'] = $user['verification_status'];
+                    $_SESSION['last_activity']            = time();
+                    header("Location: ../student/index.php");
+                    exit();
+                }
+            } else {
+                // Not a student match — check admins table
+                $stmt = $pdo->prepare("SELECT * FROM admins WHERE email = ? AND status = 'Active'");
+                $stmt->execute([$email]);
+                $admin = $stmt->fetch();
+
+                if ($admin && password_verify($password, $admin['password'])) {
+                    // Success! Clear failed attempts
+                    $pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?")->execute([$ip, $email]);
+
+                    $_SESSION['admin_id']      = $admin['id'];
+                    $_SESSION['admin_name']    = $admin['name'];
+                    $_SESSION['admin_role']    = $admin['role'];
+                    $_SESSION['last_activity'] = time();
+                    header("Location: ../" . ($admin['role'] === 'superadmin' ? 'superadmin' : 'admin') . "/index.php");
+                    exit();
+                }
+
+                // Authentication failed - record failed attempt
+                sleep(1); // slow down brute-force attacks
+                $pdo->prepare("INSERT INTO login_attempts (ip_address, email, attempted_at) VALUES (?, ?, NOW())")->execute([$ip, $email]);
+
+                // Count total failed attempts in window to inform user of remaining attempts
+                $failStmt = $pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE (ip_address = ? OR email = ?) AND attempted_at > (NOW() - INTERVAL 15 MINUTE)");
+                $failStmt->execute([$ip, $email]);
+                $total_fails = (int)$failStmt->fetchColumn();
+                $attempts_left = max(0, $max_attempts - $total_fails);
+
+                if ($attempts_left > 0) {
+                    $error = "Invalid email or password. You have $attempts_left attempt(s) remaining before a 15-minute lockout.";
+                } else {
+                    $error = "Too many failed login attempts. Your account/IP has been temporarily locked out for 15 minutes.";
+                }
             }
-
-            $error = "Invalid email or password. Please try again.";
         }
     }
 }
@@ -334,21 +423,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="login-title">Login</div>
 
             <?php if (!empty($error)): ?>
-                <div class="alert alert-danger py-2" style="font-size: 13px;">
+                <div class="alert alert-danger py-2" role="alert" style="font-size: 13px;">
                     <i class="fas fa-exclamation-circle me-1"></i>
                     <?= htmlspecialchars($error) ?>
                 </div>
             <?php endif; ?>
 
             <?php if ($timeout): ?>
-                <div class="alert alert-warning py-2" style="font-size: 13px;">
+                <div class="alert alert-warning py-2" role="alert" style="font-size: 13px;">
                     <i class="fas fa-clock me-1"></i>
                     Your session has expired due to inactivity. Please log in again.
                 </div>
             <?php endif; ?>
 
             <?php if (isset($_GET['registered'])): ?>
-                <div class="alert alert-success py-2" style="font-size: 13px;">
+                <div class="alert alert-success py-2" role="alert" style="font-size: 13px;">
                     <i class="fas fa-check-circle me-1"></i>
                     Registration submitted! You can log in now. The Registrar may follow up for verification.
                 </div>
@@ -356,19 +445,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <form method="POST" action="">
                 <div class="mb-3">
-                    <label class="form-label">Username: (Email)</label>
-                    <input type="email" name="email" class="form-control"
+                    <label for="loginEmail" class="form-label">Username: (Email)</label>
+                    <input type="email" name="email" id="loginEmail" class="form-control"
                         placeholder="Email Address"
                         value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
+                        required
+                        aria-required="true"
                         autofocus>
                 </div>
 
                 <div class="mb-1">
-                    <label class="form-label">Password:</label>
+                    <label for="passwordInput" class="form-label">Password:</label>
                     <div class="password-wrapper">
                         <input type="password" name="password" id="passwordInput"
-                            class="form-control" placeholder="Password">
-                        <i class="fas fa-eye toggle-pass" id="togglePass"></i>
+                            class="form-control" placeholder="Password" required aria-required="true">
+                        <button type="button" class="toggle-pass" id="togglePass" aria-label="Toggle password visibility" style="background:none;border:none;padding:0;">
+                            <i class="fas fa-eye" id="togglePassIcon"></i>
+                        </button>
                     </div>
                 </div>
 
@@ -376,12 +469,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div class="terms-text">
                     By using this service, you understood and agree to the PUP Online Services
-                    <a href="#">Terms of Use</a> and <a href="#">Privacy Statement</a>.
+                    <a href="../terms.php">Terms of Use</a> and <a href="../privacy-policy.php">Privacy Statement</a>.
                 </div>
 
                 <div class="login-actions">
                     <a href="register.php" class="btn-register">Register</a>
-                    <button type="submit" class="btn-login">Login</button>
+                    <button type="submit" class="btn-login" <?= $is_ip_locked ? 'disabled' : '' ?>>Login</button>
                 </div>
             </form>
         </div>
@@ -391,18 +484,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!-- FOOTER -->
 <div class="footer-pup">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
-    <a href="#">Terms of Use</a> | <a href="#">Privacy Statement</a>
+    <a href="../terms.php">Terms of Use</a> | <a href="../privacy-policy.php">Privacy Statement</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     // Toggle password visibility
-    document.getElementById('togglePass').addEventListener('click', function () {
+    document.getElementById('togglePass')?.addEventListener('click', function () {
         const input = document.getElementById('passwordInput');
-        const isPassword = input.type === 'password';
-        input.type = isPassword ? 'text' : 'password';
-        this.classList.toggle('fa-eye');
-        this.classList.toggle('fa-eye-slash');
+        const icon = document.getElementById('togglePassIcon');
+        if (input) {
+            const isPassword = input.type === 'password';
+            input.type = isPassword ? 'text' : 'password';
+            if (icon) {
+                icon.classList.toggle('fa-eye', !isPassword);
+                icon.classList.toggle('fa-eye-slash', isPassword);
+            }
+        }
     });
 </script>
 </body>

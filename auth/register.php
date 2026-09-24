@@ -74,8 +74,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 3. Password
     if (empty($password)) {
         $errors[] = "Password is required.";
-    } elseif (strlen($password) < 6) {
-        $errors[] = "Password must be at least 6 characters.";
+    } elseif (strlen($password) < 8) {
+        $errors[] = "Password must be at least 8 characters.";
+    } elseif (!preg_match('/[A-Z]/', $password)) {
+        $errors[] = "Password must contain at least one uppercase letter (A-Z).";
+    } elseif (!preg_match('/[a-z]/', $password)) {
+        $errors[] = "Password must contain at least one lowercase letter (a-z).";
+    } elseif (!preg_match('/[0-9]/', $password)) {
+        $errors[] = "Password must contain at least one number (0-9).";
     } elseif ($password !== $confirm_pass) {
         $errors[] = "Passwords do not match.";
     }
@@ -348,6 +354,48 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
         .suffix-wrapper { display: flex; gap: 8px; }
         .suffix-wrapper select { flex: 0 0 120px; }
         .suffix-wrapper input  { flex: 1; }
+
+        .password-wrapper { position: relative; }
+        .password-wrapper .toggle-pass {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #999;
+            font-size: 13px;
+            z-index: 5;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .password-wrapper .toggle-pass:hover { color: var(--pup-red); }
+        .password-wrapper .form-control { padding-right: 36px; }
+
+        .pwd-checklist {
+            list-style: none;
+            padding-left: 0;
+            margin-top: 8px;
+            margin-bottom: 0;
+            font-size: 11px;
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 8px 12px;
+        }
+        .pwd-req {
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #777;
+            transition: all 0.2s;
+        }
+        .pwd-req:last-child { margin-bottom: 0; }
+        .pwd-req.valid { color: #27ae60; font-weight: 600; }
+        .pwd-req.valid i { color: #27ae60; }
+        .pwd-req.invalid { color: #888; }
+        .pwd-req.invalid i { color: #bbb; }
     </style>
 </head>
 <body>
@@ -401,41 +449,71 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
                         <!-- Student Number FIRST (per spec) -->
                         <div class="mb-3">
-                            <label class="form-label">Student Number <span class="req">*</span></label>
-                            <input type="text" name="student_number" class="form-control"
+                            <label for="student_number" class="form-label">Student Number <span class="req">*</span></label>
+                            <input type="text" id="student_number" name="student_number" class="form-control"
                                 placeholder="e.g. 2023-00001-BN-0"
+                                aria-required="true"
+                                aria-describedby="snHint"
                                 value="<?= htmlspecialchars($_POST['student_number'] ?? '') ?>">
-                            <div class="field-hint">Format: YYYY-XXXXX-BN-0</div>
+                            <div id="snHint" class="field-hint">Format: YYYY-XXXXX-BN-0</div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Email Address <span class="req">*</span></label>
-                            <input type="email" name="email" class="form-control" placeholder="Email"
+                            <label for="email" class="form-label">Email Address <span class="req">*</span></label>
+                            <input type="email" id="email" name="email" class="form-control" placeholder="Email"
+                                aria-required="true"
+                                aria-describedby="emailHint"
                                 value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
-                            <div class="field-hint warn">
+                            <div id="emailHint" class="field-hint warn">
                                 Please DO NOT use the email address of another PUP student.
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Confirm Email <span class="req">*</span></label>
-                            <input type="email" name="confirm_email" class="form-control" placeholder="Repeat Email"
+                            <label for="confirm_email" class="form-label">Confirm Email <span class="req">*</span></label>
+                            <input type="email" id="confirm_email" name="confirm_email" class="form-control" placeholder="Repeat Email"
+                                aria-required="true"
                                 value="<?= htmlspecialchars($_POST['confirm_email'] ?? '') ?>">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Password <span class="req">*</span></label>
-                            <input type="password" name="password" class="form-control" placeholder="Password">
+                            <label for="password" class="form-label">Password <span class="req">*</span></label>
+                            <div class="password-wrapper">
+                                <input type="password" id="password" name="password" class="form-control" placeholder="Password"
+                                    aria-required="true"
+                                    aria-describedby="pwdChecklist"
+                                    autocomplete="new-password">
+                                <button type="button" class="toggle-pass" id="togglePasswordBtn" aria-label="Toggle password visibility">
+                                    <i class="fas fa-eye" id="togglePasswordIcon"></i>
+                                </button>
+                            </div>
+                            <!-- Live Password Checklist -->
+                            <ul class="pwd-checklist" id="pwdChecklist" aria-live="polite">
+                                <li id="req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
+                                <li id="req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
+                                <li id="req-lower" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 lowercase letter (a-z)</li>
+                                <li id="req-num" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 number (0-9)</li>
+                                <li id="req-match" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> Passwords match</li>
+                            </ul>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Confirm Password <span class="req">*</span></label>
-                            <input type="password" name="confirm_password" class="form-control" placeholder="Repeat Password">
+                            <label for="confirm_password" class="form-label">Confirm Password <span class="req">*</span></label>
+                            <div class="password-wrapper">
+                                <input type="password" id="confirm_password" name="confirm_password" class="form-control" placeholder="Repeat Password"
+                                    aria-required="true"
+                                    autocomplete="new-password">
+                                <button type="button" class="toggle-pass" id="toggleConfirmBtn" aria-label="Toggle confirm password visibility">
+                                    <i class="fas fa-eye" id="toggleConfirmIcon"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="mb-0">
-                            <label class="form-label">Mobile Number <span class="req">*</span></label>
-                            <input type="text" name="mobile_number" class="form-control"
+                            <label for="mobile_number" class="form-label">Mobile Number <span class="req">*</span></label>
+                            <input type="text" id="mobile_number" name="mobile_number" class="form-control"
                                 placeholder="e.g. 09171234567"
                                 maxlength="11"
+                                aria-required="true"
+                                aria-describedby="mobileHint"
                                 value="<?= htmlspecialchars($_POST['mobile_number'] ?? '') ?>">
-                            <div class="field-hint">11 digits, numbers only.</div>
+                            <div id="mobileHint" class="field-hint">11 digits, numbers only.</div>
                         </div>
 
                     </div>
@@ -665,9 +743,68 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
     }
 
     // Mobile number: restrict to digits only
-    document.querySelector('input[name="mobile_number"]').addEventListener('input', function () {
+    document.querySelector('input[name="mobile_number"]')?.addEventListener('input', function () {
         this.value = this.value.replace(/\D/g, '').slice(0, 11);
     });
+
+    // Password visibility toggles
+    function setupPassToggle(btnId, iconId, inputId) {
+        const btn = document.getElementById(btnId);
+        const icon = document.getElementById(iconId);
+        const input = document.getElementById(inputId);
+        if (btn && icon && input) {
+            btn.addEventListener('click', function () {
+                const isPassword = input.type === 'password';
+                input.type = isPassword ? 'text' : 'password';
+                icon.classList.toggle('fa-eye', !isPassword);
+                icon.classList.toggle('fa-eye-slash', isPassword);
+            });
+        }
+    }
+    setupPassToggle('togglePasswordBtn', 'togglePasswordIcon', 'password');
+    setupPassToggle('toggleConfirmBtn', 'toggleConfirmIcon', 'confirm_password');
+
+    // Live Password Checklist validation
+    const pwdInput = document.getElementById('password');
+    const confirmInput = document.getElementById('confirm_password');
+
+    function updatePwdRequirement(elemId, isValid) {
+        const elem = document.getElementById(elemId);
+        if (!elem) return;
+        const icon = elem.querySelector('i');
+        if (isValid) {
+            elem.classList.remove('invalid');
+            elem.classList.add('valid');
+            if (icon) {
+                icon.className = 'fas fa-circle-check';
+            }
+        } else {
+            elem.classList.remove('valid');
+            elem.classList.add('invalid');
+            if (icon) {
+                icon.className = 'fas fa-circle-xmark';
+            }
+        }
+    }
+
+    function checkPasswordComplexity() {
+        if (!pwdInput) return;
+        const val = pwdInput.value;
+        const confVal = confirmInput ? confirmInput.value : '';
+
+        updatePwdRequirement('req-len', val.length >= 8);
+        updatePwdRequirement('req-upper', /[A-Z]/.test(val));
+        updatePwdRequirement('req-lower', /[a-z]/.test(val));
+        updatePwdRequirement('req-num', /[0-9]/.test(val));
+        updatePwdRequirement('req-match', val.length > 0 && val === confVal);
+    }
+
+    if (pwdInput) {
+        pwdInput.addEventListener('input', checkPasswordComplexity);
+    }
+    if (confirmInput) {
+        confirmInput.addEventListener('input', checkPasswordComplexity);
+    }
 </script>
 </body>
 </html>

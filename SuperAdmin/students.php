@@ -1,7 +1,9 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 require_once '../includes/mailer.php';
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -16,6 +18,7 @@ $error   = '';
 
 // Handle Approve / Reject
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_action'])) {
+    csrf_verify();
     $target_id = intval($_POST['student_id']);
     $action    = $_POST['verify_action'];
 
@@ -152,7 +155,7 @@ $current_page = 'students';
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-users me-2" style="color:var(--sa-color);"></i>Students</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -235,11 +238,7 @@ $current_page = 'students';
                             <td>
                                 <?php
                                 $vs    = $s['verification_status'] ?? 'Pending Verification';
-                                $vscls = match($vs) {
-                                    'Active'   => 'vs-active',
-                                    'Rejected' => 'vs-rejected',
-                                    default    => 'vs-pending',
-                                };
+                                $vscls = ($vs === 'Active') ? 'vs-active' : (($vs === 'Rejected') ? 'vs-rejected' : 'vs-pending');
                                 ?>
                                 <span class="badge <?= $vscls ?>"><?= htmlspecialchars($vs) ?></span>
                             </td>
@@ -248,11 +247,13 @@ $current_page = 'students';
                                 <?php if (($s['verification_status'] ?? '') === 'Pending Verification'): ?>
                                     <div style="display:flex; gap:4px; justify-content:center;">
                                         <form method="POST" style="display:inline;">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                             <input type="hidden" name="verify_action" value="approve">
                                             <button type="submit" class="btn-approve"><i class="fas fa-check me-1"></i>Approve</button>
                                         </form>
                                         <form method="POST" style="display:inline;">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                             <input type="hidden" name="verify_action" value="reject">
                                             <button type="submit" class="btn-reject" onclick="return confirm('Reject this student account?')">
@@ -262,6 +263,7 @@ $current_page = 'students';
                                     </div>
                                 <?php elseif (($s['verification_status'] ?? '') === 'Rejected'): ?>
                                     <form method="POST" style="display:inline;">
+                                        <?= csrf_field() ?>
                                         <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                         <input type="hidden" name="verify_action" value="approve">
                                         <button type="submit" class="btn-approve"><i class="fas fa-undo me-1"></i>Re-approve</button>

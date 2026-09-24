@@ -27,15 +27,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($user) {
             // Generate a secure random token
             $token   = bin2hex(random_bytes(32));           // 64-char hex
-            $expires = date('Y-m-d H:i:s', time() + 3600); // 1 hour
+            $expires = gmdate('Y-m-d H:i:s', time() + 3600); // 1 hour (UTC)
 
             $pdo->prepare("UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?")
                 ->execute([$token, $expires, $user['id']]);
 
             // Build reset URL
-            $scheme   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
-            $resetUrl = $scheme . '://' . $host . '/edocuserve/auth/reset_password.php?token=' . $token;
+            $appUrl = getenv('APP_URL') ?: ($_ENV['APP_URL'] ?? '');
+            if (!empty($appUrl)) {
+                $resetUrl = rtrim($appUrl, '/') . '/auth/reset_password.php?token=' . $token;
+            } else {
+                $scheme   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                $resetUrl = $scheme . '://' . $host . '/edocuserve/auth/reset_password.php?token=' . $token;
+            }
 
             $html = emailPasswordReset($user['first_name'], $resetUrl, 60);
             sendMail($pdo, $user['email'], $user['first_name'], 'Reset Your PUP e-DocuServe Password', $html);
@@ -105,13 +110,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <?php if ($success): ?>
-                <div class="alert alert-success py-2 mb-3" style="font-size:13px;">
+                <div class="alert alert-success py-2 mb-3" role="alert" style="font-size:13px;">
                     <i class="fas fa-check-circle me-1"></i> <?= htmlspecialchars($success) ?>
                 </div>
             <?php endif; ?>
 
             <?php if ($error): ?>
-                <div class="alert alert-danger py-2 mb-3" style="font-size:13px;">
+                <div class="alert alert-danger py-2 mb-3" role="alert" style="font-size:13px;">
                     <i class="fas fa-exclamation-circle me-1"></i> <?= htmlspecialchars($error) ?>
                 </div>
             <?php endif; ?>
@@ -119,11 +124,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if (!$success): ?>
             <form method="POST" action="">
                 <div class="mb-3">
-                    <label class="form-label">Email Address</label>
-                    <input type="email" name="email" class="form-control"
+                    <label for="emailInput" class="form-label">Email Address</label>
+                    <input type="email" name="email" id="emailInput" class="form-control"
                         placeholder="your.email@example.com"
                         value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
-                        autofocus required>
+                        autofocus required aria-required="true">
                 </div>
                 <button type="submit" class="btn-submit">
                     <i class="fas fa-paper-plane me-2"></i>Send Reset Link

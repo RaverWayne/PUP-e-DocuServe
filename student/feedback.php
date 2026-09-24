@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once 'csrf.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../auth/login.php");
@@ -33,6 +34,7 @@ $success = false;
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$already_submitted) {
+    csrf_verify();
     $q1  = intval($_POST['q1']  ?? 0);
     $q2  = intval($_POST['q2']  ?? 0);
     $q3  = intval($_POST['q3']  ?? 0);
@@ -195,6 +197,7 @@ $questions = [
     <?php endif; ?>
 
     <form method="POST" id="feedbackForm">
+        <?= csrf_field() ?>
         <div class="section-card">
             <div class="section-header"><i class="fas fa-clipboard-list me-2"></i>Rate Your Experience</div>
             <div class="section-body">

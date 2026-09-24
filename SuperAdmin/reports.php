@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -25,6 +26,32 @@ $paid_range = $paid_range->fetchColumn();
 $claimed_range = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed' AND DATE(date_filed) BETWEEN ? AND ?");
 $claimed_range->execute([$date_from, $date_to]);
 $claimed_range = $claimed_range->fetchColumn();
+
+// Turnaround time & SLA Compliance for date range
+$tat_stmt = $pdo->prepare("
+    SELECT ROUND(AVG(DATEDIFF(COALESCE(date_released, updated_at), date_filed)), 1)
+    FROM requests
+    WHERE request_status IN ('Claimed', 'Ready for Pickup')
+      AND DATE(date_filed) BETWEEN ? AND ?
+");
+$tat_stmt->execute([$date_from, $date_to]);
+$avg_tat_range = $tat_stmt->fetchColumn();
+$avg_tat_range = ($avg_tat_range !== null && $avg_tat_range !== false) ? $avg_tat_range : 0;
+
+$sla_stmt = $pdo->prepare("
+    SELECT
+        COUNT(*) as total_with_target,
+        SUM(CASE WHEN DATE(COALESCE(date_released, updated_at)) <= tentative_release_date THEN 1 ELSE 0 END) as on_time
+    FROM requests
+    WHERE request_status IN ('Claimed', 'Ready for Pickup')
+      AND tentative_release_date IS NOT NULL
+      AND DATE(date_filed) BETWEEN ? AND ?
+");
+$sla_stmt->execute([$date_from, $date_to]);
+$sla_range_data = $sla_stmt->fetch();
+$sla_rate_range = ($sla_range_data && $sla_range_data['total_with_target'] > 0)
+    ? round(($sla_range_data['on_time'] / $sla_range_data['total_with_target']) * 100)
+    : 100;
 
 // Requests by status
 $by_status = $pdo->prepare("
@@ -166,7 +193,7 @@ $current_page = 'reports';
         .section-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; }
         .section-header { background: #f5f5f5; padding: 12px 18px; font-weight: 700; font-size: 13px; color: #333; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
         .section-body { padding: 20px; }
-        .summary-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 20px; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px; }
         .summary-card { background: white; border-radius: 8px; padding: 16px 18px; border-left: 4px solid #ddd; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
         .summary-card .card-num { font-size: 22px; font-weight: 700; color: #333; }
         .summary-card .card-label { font-size: 11px; color: #888; margin-top: 3px; }
@@ -174,6 +201,8 @@ $current_page = 'reports';
         .card-green { border-left-color: #27ae60; }
         .card-blue { border-left-color: #3498db; }
         .card-gold { border-left-color: #f39c12; }
+        .card-dark { border-left-color: #2c3e50; }
+        .card-purple { border-left-color: #8e44ad; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .data-table th { padding: 9px 14px; font-weight: 600; color: #555; border-bottom: 1px solid #eee; font-size: 12px; background: #f8f8f8; }
         .data-table td { padding: 9px 14px; border-bottom: 1px solid #f0f0f0; }
@@ -193,7 +222,7 @@ $current_page = 'reports';
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-chart-bar me-2" style="color:var(--sa-color);"></i>Reports</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -238,6 +267,14 @@ $current_page = 'reports';
             <div class="summary-card card-blue">
                 <div class="card-num"><?= $claimed_range ?></div>
                 <div class="card-label">Claimed Documents</div>
+            </div>
+            <div class="summary-card card-dark">
+                <div class="card-num"><?= $avg_tat_range ?> <span style="font-size:12px; font-weight:normal; color:#888;">days</span></div>
+                <div class="card-label">Avg. Turnaround Time</div>
+            </div>
+            <div class="summary-card card-purple">
+                <div class="card-num"><?= $sla_rate_range ?>%</div>
+                <div class="card-label">SLA Compliance Rate</div>
             </div>
         </div>
 

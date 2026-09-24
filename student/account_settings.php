@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once 'csrf.php';
 
 // Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
@@ -28,6 +29,7 @@ $success = '';
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $old_password     = $_POST['old_password'] ?? '';
     $new_password     = $_POST['new_password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
@@ -36,8 +38,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "All fields are required.";
     } elseif (!password_verify($old_password, $user['password'])) {
         $error = "Your current password is incorrect.";
-    } elseif (strlen($new_password) < 6) {
-        $error = "New password must be at least 6 characters.";
+    } elseif (strlen($new_password) < 8) {
+        $error = "Password must be at least 8 characters.";
+    } elseif (!preg_match('/[A-Z]/', $new_password)) {
+        $error = "Password must include at least one uppercase letter.";
+    } elseif (!preg_match('/[a-z]/', $new_password)) {
+        $error = "Password must include at least one lowercase letter.";
+    } elseif (!preg_match('/[0-9]/', $new_password)) {
+        $error = "Password must include at least one number.";
     } elseif ($new_password !== $confirm_password) {
         $error = "New passwords do not match.";
     } elseif ($old_password === $new_password) {
@@ -101,9 +109,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .password-wrapper .toggle-pass {
             position: absolute; right: 10px; top: 50%;
             transform: translateY(-50%); cursor: pointer;
-            color: #aaa; font-size: 13px;
+            color: #aaa; font-size: 13px; background: none; border: none; padding: 0;
+            z-index: 5;
         }
         .password-wrapper .toggle-pass:hover { color: var(--pup-red); }
+        .password-wrapper .form-control { padding-right: 36px; }
+
+        .pwd-checklist { list-style: none; padding: 8px 12px; margin-top: 8px; margin-bottom: 0; font-size: 11px; background: #fafafa; border: 1px solid #eee; border-radius: 4px; }
+        .pwd-req { margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: #777; transition: all 0.2s; }
+        .pwd-req:last-child { margin-bottom: 0; }
+        .pwd-req.valid { color: #27ae60; font-weight: 600; }
+        .pwd-req.valid i { color: #27ae60; }
+        .pwd-req.invalid { color: #888; }
+        .pwd-req.invalid i { color: #bbb; }
 
         .btn-submit {
             background: var(--pup-red); color: white; border: none;
@@ -178,26 +196,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="section-header">Change Your Password</div>
                 <div class="section-body">
                     <form method="POST" action="">
+                        <?= csrf_field() ?>
                         <div class="mb-3">
-                            <label class="form-label">Old Password <span style="color:var(--pup-red);">*</span></label>
+                            <label for="oldPass" class="form-label">Old Password <span style="color:var(--pup-red);" aria-hidden="true">*</span></label>
                             <div class="password-wrapper">
-                                <input type="password" name="old_password" id="oldPass" class="form-control" placeholder="Old Password">
-                                <i class="fas fa-eye toggle-pass" onclick="togglePass('oldPass', this)"></i>
+                                <input type="password" name="old_password" id="oldPass" class="form-control" placeholder="Old Password" required aria-required="true">
+                                <button type="button" class="toggle-pass" id="toggleOldPassBtn" aria-label="Toggle old password visibility">
+                                    <i class="fas fa-eye" id="toggleOldPassIcon"></i>
+                                </button>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">New Password <span style="color:var(--pup-red);">*</span></label>
+                            <label for="newPass" class="form-label">New Password <span style="color:var(--pup-red);" aria-hidden="true">*</span></label>
                             <div class="password-wrapper">
-                                <input type="password" name="new_password" id="newPass" class="form-control" placeholder="New Password">
-                                <i class="fas fa-eye toggle-pass" onclick="togglePass('newPass', this)"></i>
+                                <input type="password" name="new_password" id="newPass" class="form-control" placeholder="New Password" required aria-required="true" aria-describedby="pwdChecklist" autocomplete="new-password">
+                                <button type="button" class="toggle-pass" id="toggleNewPassBtn" aria-label="Toggle new password visibility">
+                                    <i class="fas fa-eye" id="toggleNewPassIcon"></i>
+                                </button>
                             </div>
-                            <div style="font-size:11px; color:#888; margin-top:3px;">Minimum 6 characters.</div>
+                            <ul class="pwd-checklist" id="pwdChecklist" aria-live="polite">
+                                <li id="req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
+                                <li id="req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
+                                <li id="req-lower" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 lowercase letter (a-z)</li>
+                                <li id="req-num" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 number (0-9)</li>
+                                <li id="req-match" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> Passwords match</li>
+                            </ul>
                         </div>
                         <div class="mb-4">
-                            <label class="form-label">Confirm New Password <span style="color:var(--pup-red);">*</span></label>
+                            <label for="confirmPass" class="form-label">Confirm New Password <span style="color:var(--pup-red);" aria-hidden="true">*</span></label>
                             <div class="password-wrapper">
-                                <input type="password" name="confirm_password" id="confirmPass" class="form-control" placeholder="Confirm New Password">
-                                <i class="fas fa-eye toggle-pass" onclick="togglePass('confirmPass', this)"></i>
+                                <input type="password" name="confirm_password" id="confirmPass" class="form-control" placeholder="Confirm New Password" required aria-required="true" autocomplete="new-password">
+                                <button type="button" class="toggle-pass" id="toggleConfPassBtn" aria-label="Toggle confirm password visibility">
+                                    <i class="fas fa-eye" id="toggleConfPassIcon"></i>
+                                </button>
                             </div>
                         </div>
                         <button type="submit" class="btn-submit">
@@ -220,13 +251,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-function togglePass(inputId, icon) {
-    const input = document.getElementById(inputId);
-    const isPass = input.type === 'password';
-    input.type = isPass ? 'text' : 'password';
-    icon.classList.toggle('fa-eye');
-    icon.classList.toggle('fa-eye-slash');
+function makeToggle(btnId, iconId, inputId) {
+    document.getElementById(btnId)?.addEventListener('click', function () {
+        const inp = document.getElementById(inputId);
+        const icon = document.getElementById(iconId);
+        if (inp && icon) {
+            const isPassword = inp.type === 'password';
+            inp.type = isPassword ? 'text' : 'password';
+            icon.classList.toggle('fa-eye', !isPassword);
+            icon.classList.toggle('fa-eye-slash', isPassword);
+        }
+    });
 }
+makeToggle('toggleOldPassBtn', 'toggleOldPassIcon', 'oldPass');
+makeToggle('toggleNewPassBtn', 'toggleNewPassIcon', 'newPass');
+makeToggle('toggleConfPassBtn', 'toggleConfPassIcon', 'confirmPass');
+
+// Live Password Checklist validation
+const pwdInput = document.getElementById('newPass');
+const confirmInput = document.getElementById('confirmPass');
+
+function updatePwdRequirement(elemId, isValid) {
+    const elem = document.getElementById(elemId);
+    if (!elem) return;
+    const icon = elem.querySelector('i');
+    if (isValid) {
+        elem.classList.remove('invalid');
+        elem.classList.add('valid');
+        if (icon) icon.className = 'fas fa-circle-check';
+    } else {
+        elem.classList.remove('valid');
+        elem.classList.add('invalid');
+        if (icon) icon.className = 'fas fa-circle-xmark';
+    }
+}
+
+function checkPasswordComplexity() {
+    if (!pwdInput) return;
+    const val = pwdInput.value;
+    const confVal = confirmInput ? confirmInput.value : '';
+
+    updatePwdRequirement('req-len', val.length >= 8);
+    updatePwdRequirement('req-upper', /[A-Z]/.test(val));
+    updatePwdRequirement('req-lower', /[a-z]/.test(val));
+    updatePwdRequirement('req-num', /[0-9]/.test(val));
+    updatePwdRequirement('req-match', val.length > 0 && val === confVal);
+}
+
+if (pwdInput) pwdInput.addEventListener('input', checkPasswordComplexity);
+if (confirmInput) confirmInput.addEventListener('input', checkPasswordComplexity);
 </script>
 </body>
 </html>

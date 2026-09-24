@@ -48,6 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_request_id']))
         } else {
             $pdo->prepare("UPDATE requests SET request_status = 'Cancelled', admin_notes = ? WHERE id = ? AND user_id = ?")
                 ->execute(["Cancelled by student: " . $cancel_reason, $cancel_id, $user_id]);
+            $student_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+            $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+                ->execute([$cancel_id, $to_cancel['request_status'], 'Cancelled', $student_name ?: 'Student', 'Cancelled by student: ' . $cancel_reason]);
             $cancel_success = true;
         }
     }
@@ -88,6 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
         if (move_uploaded_file($file['tmp_name'], $dest)) {
             $stmt = $pdo->prepare("UPDATE requests SET bank_slip_path = ?, payment_status = 'Pending Verification' WHERE id = ? AND user_id = ?");
             $stmt->execute([$filename, $request_id, $user_id]);
+            $student_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+            $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+                ->execute([$request_id, $req['request_status'], $req['request_status'], $student_name ?: 'Student', 'Bank slip uploaded by student']);
             $upload_success = true;
         } else {
             $upload_error = "Failed to upload. Please try again.";
@@ -106,6 +112,22 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([$user_id]);
 $requests = $stmt->fetchAll();
+
+// Fetch request history for all user requests (Wave 3)
+$histStmt = $pdo->prepare("
+    SELECT rh.*
+    FROM request_history rh
+    JOIN requests r ON rh.request_id = r.id
+    WHERE r.user_id = ?
+    ORDER BY rh.changed_at ASC
+");
+$histStmt->execute([$user_id]);
+$all_histories = $histStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$request_histories = [];
+foreach ($all_histories as $h) {
+    $request_histories[$h['request_id']][] = $h;
+}
 
 function statusBadge($status) {
     $map = ['Pending' => 'secondary', 'Processing' => 'primary', 'Ready for Pickup' => 'success', 'Claimed' => 'dark', 'Cancelled' => 'danger'];
@@ -171,6 +193,28 @@ function paymentBadge($status) {
         .footer-pup a { color: var(--pup-red); text-decoration: none; }
         .modal-header { background: var(--pup-red); color: white; }
         .modal-header .btn-close { filter: invert(1); }
+
+        /* Timeline Styles */
+        .timeline-track { position: relative; padding: 20px 10px; margin-bottom: 20px; background: #fafafa; border-radius: 6px; border: 1px solid #eee; }
+        .timeline-steps { display: flex; justify-content: space-between; position: relative; }
+        .timeline-steps::before { content: ''; position: absolute; top: 16px; left: 30px; right: 30px; height: 3px; background: #e0e0e0; z-index: 1; }
+        .timeline-step { position: relative; z-index: 2; text-align: center; flex: 1; }
+        .timeline-icon { width: 34px; height: 34px; border-radius: 50%; background: #e0e0e0; color: #777; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-size: 13px; transition: all 0.3s; }
+        .timeline-step.completed .timeline-icon { background: #27ae60; color: white; }
+        .timeline-step.active .timeline-icon { background: var(--pup-red); color: white; box-shadow: 0 0 0 4px rgba(109,26,26,0.2); }
+        .timeline-step.cancelled .timeline-icon { background: #c0392b; color: white; }
+        .timeline-title { font-size: 11px; font-weight: 600; color: #777; }
+        .timeline-step.active .timeline-title { color: var(--pup-red); font-weight: 700; }
+        .timeline-step.completed .timeline-title { color: #27ae60; font-weight: 600; }
+        .timeline-step.cancelled .timeline-title { color: #c0392b; font-weight: 700; }
+
+        .history-list { list-style: none; padding-left: 20px; position: relative; border-left: 2px solid #ddd; margin-left: 10px; margin-bottom: 0; }
+        .history-item { position: relative; margin-bottom: 16px; }
+        .history-item:last-child { margin-bottom: 0; }
+        .history-item::before { content: ''; position: absolute; left: -26px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--pup-red); }
+        .history-time { font-size: 11px; color: #888; margin-bottom: 2px; }
+        .history-title { font-size: 13px; font-weight: 600; color: #333; }
+        .history-notes { font-size: 12px; color: #555; background: #f9f9f9; padding: 6px 10px; border-radius: 4px; margin-top: 4px; border: 1px solid #eee; }
     </style>
 </head>
 <body>
@@ -254,10 +298,13 @@ function paymentBadge($status) {
                             <div><strong>Course:</strong> <?= htmlspecialchars($user['course']) ?></div>
                             <div><strong>Purpose:</strong> <?= htmlspecialchars($req['purpose']) ?></div>
                         </td>
-                        <td style="text-align:center; min-width:150px;">
+                        <td style="text-align:center; min-width:160px;">
                             <?= statusBadge($req['request_status']) ?>
-                            <div class="mt-1">
-                                <button class="btn-view" onclick="openDetails(<?= htmlspecialchars(json_encode($req)) ?>)">View Details</button>
+                            <div class="mt-1 d-flex justify-content-center gap-1">
+                                <button class="btn-view" onclick="openDetails(<?= htmlspecialchars(json_encode($req)) ?>)">Details</button>
+                                <button class="btn-view" style="background:var(--pup-red);" onclick="openTimeline(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', '<?= htmlspecialchars($req['request_status']) ?>')">
+                                    <i class="fas fa-history me-1"></i>Timeline
+                                </button>
                             </div>
                             <div style="font-size:11px; color:#888; margin-top:4px;">Always "View Details" for more specific updates</div>
                         </td>
@@ -316,6 +363,26 @@ function paymentBadge($status) {
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="detailsContent" style="font-size:13px; padding:0;"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- TIMELINE MODAL (Wave 3) -->
+<div class="modal fade" id="timelineModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="fas fa-history me-2"></i>Status Tracking & Timeline — <span id="timelineControlNum"></span></h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="font-size:13px; padding:20px;">
+                <div id="timelineStepper" class="timeline-track"></div>
+                <h6 class="fw-bold mb-3" style="color:var(--pup-red); font-size:13px;"><i class="fas fa-list-ul me-2"></i>Status History Log</h6>
+                <div id="timelineHistoryList"></div>
+            </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
@@ -384,6 +451,74 @@ function paymentBadge($status) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+const allRequestHistories = <?= json_encode($request_histories) ?>;
+
+function openTimeline(reqId, controlNum, currentStatus) {
+    document.getElementById('timelineControlNum').textContent = controlNum;
+
+    // Build Stepper
+    const steps = [
+        { key: 'Pending', label: 'Submitted', icon: 'fa-file-alt' },
+        { key: 'Processing', label: 'Processing', icon: 'fa-cogs' },
+        { key: 'Ready for Pickup', label: 'Ready for Pickup', icon: 'fa-envelope-open-text' },
+        { key: 'Claimed', label: 'Claimed', icon: 'fa-check-circle' }
+    ];
+
+    const isCancelled = currentStatus === 'Cancelled';
+    const statusOrder = ['Pending', 'Processing', 'Ready for Pickup', 'Claimed'];
+    const currentIndex = statusOrder.indexOf(currentStatus);
+
+    let stepperHtml = '<div class="timeline-steps">';
+    if (isCancelled) {
+        stepperHtml += `
+            <div class="timeline-step completed">
+                <div class="timeline-icon"><i class="fas fa-file-alt"></i></div>
+                <div class="timeline-title">Submitted</div>
+            </div>
+            <div class="timeline-step cancelled">
+                <div class="timeline-icon"><i class="fas fa-times-circle"></i></div>
+                <div class="timeline-title">Cancelled</div>
+            </div>
+        `;
+    } else {
+        steps.forEach((step, idx) => {
+            let cls = '';
+            if (idx < currentIndex) cls = 'completed';
+            else if (idx === currentIndex) cls = 'active';
+            stepperHtml += `
+                <div class="timeline-step ${cls}">
+                    <div class="timeline-icon"><i class="fas ${step.icon}"></i></div>
+                    <div class="timeline-title">${step.label}</div>
+                </div>
+            `;
+        });
+    }
+    stepperHtml += '</div>';
+    document.getElementById('timelineStepper').innerHTML = stepperHtml;
+
+    // Build History Logs
+    const history = allRequestHistories[reqId] || [];
+    if (history.length === 0) {
+        document.getElementById('timelineHistoryList').innerHTML = '<p class="text-muted" style="font-size:12px;">No activity logs recorded yet for this request.</p>';
+    } else {
+        let histHtml = '<ul class="history-list">';
+        history.forEach(item => {
+            const dateStr = item.changed_at ? new Date(item.changed_at).toLocaleString() : '-';
+            histHtml += `
+                <li class="history-item">
+                    <div class="history-time"><i class="far fa-clock me-1"></i>${dateStr}</div>
+                    <div class="history-title">${item.new_status ? item.new_status : 'Update'} <span class="text-muted fw-normal" style="font-size:11px;">by ${item.changed_by || 'System'}</span></div>
+                    ${item.notes ? `<div class="history-notes">${item.notes}</div>` : ''}
+                </li>
+            `;
+        });
+        histHtml += '</ul>';
+        document.getElementById('timelineHistoryList').innerHTML = histHtml;
+    }
+
+    new bootstrap.Modal(document.getElementById('timelineModal')).show();
+}
+
 function openDetails(req) {
     const statusMap = { 'Pending':'<span class="badge bg-secondary">Pending</span>', 'Processing':'<span class="badge bg-primary">Processing</span>', 'Ready for Pickup':'<span class="badge bg-success">Ready for Pickup</span>', 'Claimed':'<span class="badge bg-dark">Claimed</span>', 'Cancelled':'<span class="badge bg-danger">Cancelled</span>' };
     const payMap = { 'Unpaid':'<span class="badge bg-danger">✗ Unpaid</span>', 'Pending Verification':'<span class="badge bg-warning text-dark">⏳ Pending Verification</span>', 'Paid':'<span class="badge bg-success">✔ Paid</span>' };

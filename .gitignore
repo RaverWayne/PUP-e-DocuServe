@@ -1,6 +1,7 @@
 # ── Local environment / secrets ──────────────────────────────
 # Each teammate's WAMP setup may have different DB credentials.
-# Never commit the real db.php — only the .example template.
+.env
+.env.local
 config/db.php
 
 # ── User-uploaded content ────────────────────────────────────
@@ -9,6 +10,10 @@ config/db.php
 # in version control, and may contain real student data.
 assets/uploads/*
 !assets/uploads/.gitkeep
+
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+vendor/
 
 # ── OS / editor junk ──────────────────────────────────────────
 Thumbs.db

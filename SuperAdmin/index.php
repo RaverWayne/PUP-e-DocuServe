@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -21,6 +22,39 @@ $pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_stat
 $total_students  = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 $total_admins    = $pdo->query("SELECT COUNT(*) FROM admins WHERE role = 'admin'")->fetchColumn();
 $total_docs      = $pdo->query("SELECT COUNT(*) FROM documents WHERE is_active = 1")->fetchColumn();
+$requests_today  = $pdo->query("SELECT COUNT(*) FROM requests WHERE DATE(date_filed) = CURDATE()")->fetchColumn();
+
+// Turnaround time and SLA metrics
+$avg_tat = $pdo->query("
+    SELECT ROUND(AVG(DATEDIFF(COALESCE(date_released, updated_at), date_filed)), 1)
+    FROM requests
+    WHERE request_status IN ('Claimed', 'Ready for Pickup')
+")->fetchColumn();
+$avg_tat = ($avg_tat !== null && $avg_tat !== false) ? $avg_tat : 0;
+
+$sla_stats = $pdo->query("
+    SELECT
+        COUNT(*) as total_with_target,
+        SUM(CASE WHEN DATE(COALESCE(date_released, updated_at)) <= tentative_release_date THEN 1 ELSE 0 END) as on_time
+    FROM requests
+    WHERE request_status IN ('Claimed', 'Ready for Pickup') AND tentative_release_date IS NOT NULL
+")->fetch();
+$sla_rate = ($sla_stats && $sla_stats['total_with_target'] > 0)
+    ? round(($sla_stats['on_time'] / $sla_stats['total_with_target']) * 100)
+    : 100;
+
+$overdue_count = $pdo->query("
+    SELECT COUNT(*) FROM requests
+    WHERE request_status IN ('Pending', 'Processing')
+      AND tentative_release_date IS NOT NULL
+      AND tentative_release_date < CURDATE()
+")->fetchColumn();
+
+$due_today_count = $pdo->query("
+    SELECT COUNT(*) FROM requests
+    WHERE request_status IN ('Pending', 'Processing')
+      AND tentative_release_date = CURDATE()
+")->fetchColumn();
 
 // Recent requests
 $recent = $pdo->query("
@@ -111,40 +145,12 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="sidebar-brand">
-        <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
-        <div class="sidebar-brand-text">PUP e-DocuServe <span>Biñan Campus</span></div>
-    </div>
-    <div class="sidebar-role"><i class="fas fa-crown me-2"></i>Super Admin Panel</div>
-    <nav class="sidebar-nav">
-        <div class="nav-section">Main</div>
-        <a href="index.php" class="active"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="manage_requests.php"><i class="fas fa-file-alt"></i> Manage Requests</a>
-        <a href="walkin_requests.php"><i class="fas fa-walking"></i> Walk-in Payments</a>
-        <div class="nav-section">Management</div>
-        <a href="students.php"><i class="fas fa-users"></i> Students</a>
-        <a href="manage_admins.php"><i class="fas fa-user-shield"></i> Manage Admins</a>
-        <a href="manage_documents.php"><i class="fas fa-file-invoice"></i> Manage Documents</a>
-        <div class="nav-section">Reports & Tools</div>
-        <a href="reports.php"><i class="fas fa-chart-bar"></i> Reports</a>
-        <a href="announcements.php"><i class="fas fa-bullhorn"></i> Announcements</a>
-        <a href="export.php"><i class="fas fa-file-export"></i> Export Data</a>
-        <a href="system_logs.php"><i class="fas fa-history"></i> System Logs</a>
-        <a href="system_settings.php"><i class="fas fa-sliders-h"></i> System Settings</a>
-        <div class="nav-section">Account</div>
-        <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
-    </div>
-</div>
+<?php $current_page = 'dashboard'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-tachometer-alt me-2" style="color:var(--sa-color);"></i>Super Admin Dashboard</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -205,9 +211,39 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
             </div>
             <div class="summary-card card-orange">
                 <div class="card-icon"><i class="fas fa-calendar-day"></i></div>
-                <div><div class="card-num"><?= $pdo->query("SELECT COUNT(*) FROM requests WHERE DATE(date_filed) = CURDATE()")->fetchColumn() ?></div><div class="card-label">Requests Today</div></div>
+                <div><div class="card-num"><?= $requests_today ?></div><div class="card-label">Requests Today</div></div>
             </div>
         </div>
+
+        <!-- SLA & PERFORMANCE METRICS -->
+        <div class="summary-grid">
+            <div class="summary-card" style="border-left-color: #2c3e50;">
+                <div class="card-icon" style="background: #2c3e50;"><i class="fas fa-stopwatch"></i></div>
+                <div><div class="card-num"><?= $avg_tat ?> <span style="font-size:12px; font-weight:normal; color:#888;">days</span></div><div class="card-label">Avg. Turnaround Time</div></div>
+            </div>
+            <div class="summary-card" style="border-left-color: #27ae60;">
+                <div class="card-icon" style="background: #27ae60;"><i class="fas fa-award"></i></div>
+                <div><div class="card-num"><?= $sla_rate ?>%</div><div class="card-label">SLA Compliance Rate</div></div>
+            </div>
+            <div class="summary-card" style="border-left-color: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;">
+                <div class="card-icon" style="background: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;"><i class="fas fa-calendar-check"></i></div>
+                <div><div class="card-num"><?= $due_today_count ?></div><div class="card-label">Requests Due Today</div></div>
+            </div>
+            <div class="summary-card" style="border-left-color: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;">
+                <div class="card-icon" style="background: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;"><i class="fas <?= $overdue_count > 0 ? 'fa-exclamation-triangle' : 'fa-check' ?>"></i></div>
+                <div><div class="card-num"><?= $overdue_count ?></div><div class="card-label">Overdue Target Date</div></div>
+            </div>
+        </div>
+
+        <?php if ($overdue_count > 0): ?>
+            <div class="alert alert-danger d-flex align-items-center mb-3 py-2 px-3" role="alert" style="font-size:12px;">
+                <i class="fas fa-exclamation-circle me-2 fs-5"></i>
+                <div class="flex-grow-1">
+                    <strong>SLA Alert:</strong> There are <strong><?= $overdue_count ?></strong> active requests exceeding their target release date.
+                </div>
+                <a href="manage_requests.php?status=Pending" class="btn btn-sm btn-outline-danger ms-2" style="font-size:11px;">Review Requests</a>
+            </div>
+        <?php endif; ?>
 
         <div class="two-col">
             <!-- RECENT REQUESTS -->

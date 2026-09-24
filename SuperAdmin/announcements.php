@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -12,6 +14,7 @@ $success = '';
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add') {
@@ -106,7 +109,7 @@ $current_page  = 'announcements';
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-bullhorn me-2" style="color:var(--sa-color);"></i>Announcements</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -123,6 +126,7 @@ $current_page  = 'announcements';
             <div class="section-header">Post New Announcement</div>
             <div class="section-body">
                 <form method="POST">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="action" value="add">
                     <div class="mb-3">
                         <label class="form-label">Title <span style="color:var(--pup-red);">*</span></label>
@@ -167,6 +171,7 @@ $current_page  = 'announcements';
                         </div>
                         <div style="display:flex; gap:5px; flex-shrink:0; margin-top:2px;">
                             <form method="POST" style="display:inline;">
+                                <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="toggle">
                                 <input type="hidden" name="ann_id" value="<?= $ann['id'] ?>">
                                 <input type="hidden" name="new_status" value="<?= $ann['is_active'] ? 0 : 1 ?>">
@@ -176,6 +181,7 @@ $current_page  = 'announcements';
                                 </button>
                             </form>
                             <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this announcement?')">
+                                <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="ann_id" value="<?= $ann['id'] ?>">
                                 <button type="submit" class="btn-sm-action btn-delete">

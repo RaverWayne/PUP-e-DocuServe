@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once 'csrf.php';
 
 // Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
@@ -28,6 +29,7 @@ $errors  = [];
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     // Collect inputs
     $last_name      = trim($_POST['last_name'] ?? '');
     $first_name     = trim($_POST['first_name'] ?? '');
@@ -269,6 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
     <?php endif; ?>
 
     <form method="POST">
+        <?= csrf_field() ?>
 
         <!-- PERSONAL INFORMATION -->
         <div class="section-card">

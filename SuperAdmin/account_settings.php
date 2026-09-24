@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
@@ -53,8 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "All password fields are required.";
         } elseif (!password_verify($old, $admin['password'])) {
             $error = "Current password is incorrect.";
-        } elseif (strlen($new) < 6) {
-            $error = "New password must be at least 6 characters.";
+        } elseif (strlen($new) < 8) {
+            $error = "Password must be at least 8 characters.";
+        } elseif (!preg_match('/[A-Z]/', $new)) {
+            $error = "Password must include at least one uppercase letter.";
+        } elseif (!preg_match('/[a-z]/', $new)) {
+            $error = "Password must include at least one lowercase letter.";
+        } elseif (!preg_match('/[0-9]/', $new)) {
+            $error = "Password must include at least one number.";
         } elseif ($new !== $conf) {
             $error = "New passwords do not match.";
         } elseif ($old === $new) {
@@ -75,70 +82,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --pup-red: #6D1A1A; }
+        :root { --pup-red: #6D1A1A; --sa-color: #1a237e; }
         body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; margin: 0; }
-        .sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: #1a1a1a; color: white; display: flex; flex-direction: column; z-index: 100; overflow-y: auto; }
-        .sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 10px; }
+        .sidebar { position: fixed; top: 0; left: 0; width: 230px; height: 100vh; background: #0d0d0d; color: white; display: flex; flex-direction: column; z-index: 100; overflow-y: auto; }
+        .sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 10px; }
         .sidebar-brand img { height: 36px; }
         .sidebar-brand-text { font-size: 12px; font-weight: 700; line-height: 1.3; color: white; }
         .sidebar-brand-text span { display: block; font-size: 10px; font-weight: 400; opacity: 0.7; }
-        .sidebar-role { padding: 10px 16px; background: var(--pup-red); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .sidebar-role { padding: 10px 16px; background: var(--sa-color); font-size: 11px; font-weight: 600; text-transform: uppercase; }
         .sidebar-nav { flex: 1; padding: 10px 0; }
-        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: #ccc; text-decoration: none; font-size: 13px; transition: all 0.2s; }
-        .sidebar-nav a:hover { background: #2a2a2a; color: white; }
-        .sidebar-nav a.active { background: var(--pup-red); color: white; }
-        .sidebar-nav a i { width: 16px; text-align: center; }
-        .sidebar-nav .nav-section { padding: 8px 16px 4px; font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-        .sidebar-footer { padding: 12px 16px; border-top: 1px solid #333; font-size: 12px; color: #888; }
+        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: #bbb; text-decoration: none; font-size: 12px; transition: all 0.2s; }
+        .sidebar-nav a:hover { background: #1a1a1a; color: white; }
+        .sidebar-nav a.active { background: var(--sa-color); color: white; }
+        .sidebar-nav a i { width: 16px; text-align: center; font-size: 12px; }
+        .sidebar-nav .nav-section { padding: 10px 16px 4px; font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .sidebar-footer { padding: 12px 16px; border-top: 1px solid #222; font-size: 12px; color: #777; }
         .sidebar-footer a { color: #f66; text-decoration: none; }
-        .main-content { margin-left: 220px; min-height: 100vh; display: flex; flex-direction: column; }
+        .main-content { margin-left: 230px; min-height: 100vh; display: flex; flex-direction: column; }
         .topbar { background: white; border-bottom: 1px solid #ddd; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 99; }
         .topbar-title { font-size: 15px; font-weight: 700; color: #333; }
         .topbar-user { font-size: 12px; color: #666; }
-        .topbar-user strong { color: var(--pup-red); }
-        .page-content { padding: 24px; flex: 1; max-width: 500px; }
+        .topbar-user strong { color: var(--sa-color); }
+        .page-content { padding: 24px; flex: 1; max-width: 540px; }
         .section-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
         .section-header { background: #f5f5f5; padding: 12px 18px; font-weight: 700; font-size: 13px; color: #333; border-bottom: 1px solid #eee; }
         .section-body { padding: 20px; }
         .form-label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 3px; }
         .form-control { font-size: 13px; border: 1px solid #ccc; border-radius: 4px; padding: 7px 10px; }
-        .form-control:focus { border-color: var(--pup-red); box-shadow: 0 0 0 2px rgba(139,0,0,0.1); }
+        .form-control:focus { border-color: var(--sa-color); box-shadow: 0 0 0 2px rgba(26,35,126,0.1); }
         .password-wrapper { position: relative; }
-        .password-wrapper .toggle-pass { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa; font-size: 13px; }
-        .password-wrapper .toggle-pass:hover { color: var(--pup-red); }
-        .btn-submit { background: var(--pup-red); color: white; border: none; padding: 8px 28px; border-radius: 5px; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .btn-submit:hover { background: #8B2020; }
+        .password-wrapper .toggle-pass { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #aaa; font-size: 13px; background: none; border: none; padding: 0; z-index: 5; }
+        .password-wrapper .toggle-pass:hover { color: var(--sa-color); }
+        .password-wrapper .form-control { padding-right: 36px; }
+
+        .pwd-checklist { list-style: none; padding: 8px 12px; margin-top: 8px; margin-bottom: 0; font-size: 11px; background: #fafafa; border: 1px solid #eee; border-radius: 4px; }
+        .pwd-req { margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: #777; transition: all 0.2s; }
+        .pwd-req:last-child { margin-bottom: 0; }
+        .pwd-req.valid { color: #27ae60; font-weight: 600; }
+        .pwd-req.valid i { color: #27ae60; }
+        .pwd-req.invalid { color: #888; }
+        .pwd-req.invalid i { color: #bbb; }
+        .btn-submit { background: var(--sa-color); color: white; border: none; padding: 8px 28px; border-radius: 5px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .btn-submit:hover { background: #283593; }
         .footer-admin { background: white; border-top: 1px solid #eee; padding: 12px 24px; text-align: center; font-size: 12px; color: #aaa; }
     </style>
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="sidebar-brand">
-        <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
-        <div class="sidebar-brand-text">PUP e-DocuServe <span>Biñan Campus</span></div>
-    </div>
-    <div class="sidebar-role"><i class="fas fa-user-shield me-2"></i>Admin Panel</div>
-    <nav class="sidebar-nav">
-        <div class="nav-section">Main</div>
-        <a href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="manage_requests.php"><i class="fas fa-file-alt"></i> Manage Requests</a>
-        <a href="walkin_requests.php"><i class="fas fa-walking"></i> Walk-in Payments</a>
-        <div class="nav-section">Users</div>
-        <a href="students.php"><i class="fas fa-users"></i> Students</a>
-        <div class="nav-section">Account</div>
-        <a href="account_settings.php" class="active"><i class="fas fa-cog"></i> Account Settings</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
-    </div>
-</div>
+<?php $current_page = 'account'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">
-        <div class="topbar-title"><i class="fas fa-cog me-2" style="color:var(--pup-red);"></i>Account Settings</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <div class="topbar-title"><i class="fas fa-cog me-2" style="color:var(--sa-color);"></i>Account Settings</div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -167,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid #ddd;">
                         <?php else: ?>
                             <div style="width:80px; height:80px; border-radius:50%; background:#e0e0e0; display:flex; align-items:center; justify-content:center; font-size:28px; color:#aaa;">
-                                <i class="fas fa-user-shield"></i>
+                                <i class="fas fa-crown" style="color:var(--sa-color);"></i>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -175,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div>
                         <div style="font-size:16px; font-weight:700; color:#333;"><?= htmlspecialchars($admin['name']) ?></div>
                         <div style="font-size:13px; color:#888; margin-top:2px;"><?= htmlspecialchars($admin['email']) ?></div>
-                        <span class="badge bg-danger mt-1" style="font-size:11px;">Admin</span>
+                        <span class="badge mt-1" style="background:var(--sa-color); font-size:11px;">Super Admin</span>
                     </div>
                     <!-- Upload Photo -->
                     <div style="margin-left:auto;">
@@ -205,25 +201,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <form method="POST">
                     <?= csrf_field() ?>
                     <div class="mb-3">
-                        <label class="form-label">Current Password <span style="color:var(--pup-red);">*</span></label>
+                        <label for="oldPass" class="form-label">Current Password <span style="color:var(--pup-red);" aria-hidden="true">*</span></label>
                         <div class="password-wrapper">
-                            <input type="password" name="old_password" id="oldPass" class="form-control" placeholder="Current Password">
-                            <i class="fas fa-eye toggle-pass" onclick="togglePass('oldPass', this)"></i>
+                            <input type="password" name="old_password" id="oldPass" class="form-control" placeholder="Current Password" required aria-required="true">
+                            <button type="button" class="toggle-pass" id="toggleOldPassBtn" aria-label="Toggle current password visibility">
+                                <i class="fas fa-eye" id="toggleOldPassIcon"></i>
+                            </button>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">New Password <span style="color:var(--pup-red);">*</span></label>
+                        <label for="newPass" class="form-label">New Password <span style="color:var(--pup-red);" aria-hidden="true">*</span></label>
                         <div class="password-wrapper">
-                            <input type="password" name="new_password" id="newPass" class="form-control" placeholder="New Password">
-                            <i class="fas fa-eye toggle-pass" onclick="togglePass('newPass', this)"></i>
+                            <input type="password" name="new_password" id="newPass" class="form-control" placeholder="New Password" required aria-required="true" aria-describedby="pwdChecklist" autocomplete="new-password">
+                            <button type="button" class="toggle-pass" id="toggleNewPassBtn" aria-label="Toggle new password visibility">
+                                <i class="fas fa-eye" id="toggleNewPassIcon"></i>
+                            </button>
                         </div>
-                        <div style="font-size:11px; color:#888; margin-top:3px;">Minimum 6 characters.</div>
+                        <ul class="pwd-checklist" id="pwdChecklist" aria-live="polite">
+                            <li id="req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
+                            <li id="req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
+                            <li id="req-lower" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 lowercase letter (a-z)</li>
+                            <li id="req-num" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 number (0-9)</li>
+                            <li id="req-match" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> Passwords match</li>
+                        </ul>
                     </div>
                     <div class="mb-4">
-                        <label class="form-label">Confirm New Password <span style="color:var(--pup-red);">*</span></label>
+                        <label for="confPass" class="form-label">Confirm New Password <span style="color:var(--pup-red);" aria-hidden="true">*</span></label>
                         <div class="password-wrapper">
-                            <input type="password" name="confirm_password" id="confPass" class="form-control" placeholder="Confirm New Password">
-                            <i class="fas fa-eye toggle-pass" onclick="togglePass('confPass', this)"></i>
+                            <input type="password" name="confirm_password" id="confPass" class="form-control" placeholder="Confirm New Password" required aria-required="true" autocomplete="new-password">
+                            <button type="button" class="toggle-pass" id="toggleConfPassBtn" aria-label="Toggle confirm password visibility">
+                                <i class="fas fa-eye" id="toggleConfPassIcon"></i>
+                            </button>
                         </div>
                     </div>
                     <button type="submit" class="btn-submit"><i class="fas fa-save me-2"></i>Save Changes</button>
@@ -233,18 +241,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <div class="footer-admin">
-        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Admin
+        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Super Admin
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-function togglePass(id, icon) {
-    const input = document.getElementById(id);
-    input.type = input.type === 'password' ? 'text' : 'password';
-    icon.classList.toggle('fa-eye');
-    icon.classList.toggle('fa-eye-slash');
+function makeToggle(btnId, iconId, inputId) {
+    document.getElementById(btnId)?.addEventListener('click', function () {
+        const inp = document.getElementById(inputId);
+        const icon = document.getElementById(iconId);
+        if (inp && icon) {
+            const isPassword = inp.type === 'password';
+            inp.type = isPassword ? 'text' : 'password';
+            icon.classList.toggle('fa-eye', !isPassword);
+            icon.classList.toggle('fa-eye-slash', isPassword);
+        }
+    });
 }
+makeToggle('toggleOldPassBtn', 'toggleOldPassIcon', 'oldPass');
+makeToggle('toggleNewPassBtn', 'toggleNewPassIcon', 'newPass');
+makeToggle('toggleConfPassBtn', 'toggleConfPassIcon', 'confPass');
+
+// Live Password Checklist validation
+const pwdInput = document.getElementById('newPass');
+const confirmInput = document.getElementById('confPass');
+
+function updatePwdRequirement(elemId, isValid) {
+    const elem = document.getElementById(elemId);
+    if (!elem) return;
+    const icon = elem.querySelector('i');
+    if (isValid) {
+        elem.classList.remove('invalid');
+        elem.classList.add('valid');
+        if (icon) icon.className = 'fas fa-circle-check';
+    } else {
+        elem.classList.remove('valid');
+        elem.classList.add('invalid');
+        if (icon) icon.className = 'fas fa-circle-xmark';
+    }
+}
+
+function checkPasswordComplexity() {
+    if (!pwdInput) return;
+    const val = pwdInput.value;
+    const confVal = confirmInput ? confirmInput.value : '';
+
+    updatePwdRequirement('req-len', val.length >= 8);
+    updatePwdRequirement('req-upper', /[A-Z]/.test(val));
+    updatePwdRequirement('req-lower', /[a-z]/.test(val));
+    updatePwdRequirement('req-num', /[0-9]/.test(val));
+    updatePwdRequirement('req-match', val.length > 0 && val === confVal);
+}
+
+if (pwdInput) pwdInput.addEventListener('input', checkPasswordComplexity);
+if (confirmInput) confirmInput.addEventListener('input', checkPasswordComplexity);
 </script>
 </body>
 </html>

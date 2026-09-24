@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/db.php';
 require_once '../includes/release_date.php';
+require_once 'csrf.php';
 
 // Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
@@ -21,6 +22,12 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
+// Wave 4: Block new requests if account pending verification
+$verification_check = $pdo->prepare("SELECT verification_status FROM users WHERE id = ?");
+$verification_check->execute([$user_id]);
+$user_check = $verification_check->fetch();
+$blocked_for_verification = ($user_check && $user_check['verification_status'] === 'Pending Verification');
+
 $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
@@ -39,21 +46,29 @@ $error          = '';
 $control_number = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $purpose        = trim($_POST['purpose'] ?? '');
+    csrf_verify();
+    $raw_purpose    = trim($_POST['purpose'] ?? '');
+    $purpose_other  = trim($_POST['purpose_other'] ?? '');
+    $purpose        = $raw_purpose;
     // Append Others free-text to purpose
-    if ($purpose === 'Others' && !empty(trim($_POST['purpose_other'] ?? ''))) {
-        $purpose = 'Others: ' . trim($_POST['purpose_other']);
+    if ($raw_purpose === 'Others') {
+        $purpose = !empty($purpose_other) ? 'Others: ' . $purpose_other : '';
     }
     $payment_method = trim($_POST['payment_method'] ?? '');
     $doc_ids        = $_POST['doc_ids'] ?? [];
     $quantities     = $_POST['quantities'] ?? [];
+    $allowed_methods = ['Walk-in (Cashier)', 'Walk-in (Bank Slip)'];
 
     // Validate
-    if (empty($purpose)) {
+    if ($blocked_for_verification) {
+        $error = "Your account is pending approval. You cannot submit new requests yet.";
+    } elseif (empty($raw_purpose)) {
         $error = "Please select a purpose for your request.";
-    } elseif (empty($payment_method)) {
-        $error = "Please select a payment method.";
-    } elseif (empty($doc_ids)) {
+    } elseif ($raw_purpose === 'Others' && empty($purpose_other)) {
+        $error = "Please specify your purpose for requesting documents.";
+    } elseif (empty($payment_method) || !in_array($payment_method, $allowed_methods)) {
+        $error = "Please select a valid payment method.";
+    } elseif (empty($doc_ids) || !is_array($doc_ids)) {
         $error = "Please select at least one document.";
     } else {
         // Generate control number: YYYYMMDD-XXXX
@@ -69,8 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $max_days = 0; // track slowest document for release date
 
         foreach ($doc_ids as $doc_id) {
-            $qty  = max(1, intval($quantities[$doc_id] ?? 1));
-            $stmt = $pdo->prepare("SELECT * FROM documents WHERE id = ? AND is_active = 1");
+            $doc_id = intval($doc_id);
+            $qty    = min(10, max(1, intval($quantities[$doc_id] ?? 1)));
+            $stmt   = $pdo->prepare("SELECT * FROM documents WHERE id = ? AND is_active = 1");
             $stmt->execute([$doc_id]);
             $doc = $stmt->fetch();
             if ($doc) {
@@ -86,11 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Release date from slowest document
         $tentative_release_date = calculateReleaseDate($max_days > 0 ? $max_days : 5);
 
-        // Insert request (documentary_stamp = 0)
+        // Insert request
         $stmt = $pdo->prepare("
             INSERT INTO requests
-                (control_number, user_id, purpose, payment_method, total_amount, documentary_stamp, tentative_release_date)
-            VALUES (?, ?, ?, ?, ?, 0, ?)
+                (control_number, user_id, purpose, payment_method, total_amount, tentative_release_date)
+            VALUES (?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([$control_number, $user_id, $purpose, $payment_method, $total, $tentative_release_date]);
         $request_id = $pdo->lastInsertId();
@@ -108,6 +124,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $item['subtotal']
             ]);
         }
+
+        // Log request creation to history (Wave 3)
+        $student_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+        $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+            ->execute([$request_id, null, 'Pending', $student_name ?: 'Student', 'Request submitted by student']);
 
         // Redirect to feedback if not yet submitted, otherwise show success
         $fb_check = $pdo->prepare("SELECT id FROM feedback WHERE user_id = ?");
@@ -317,7 +338,14 @@ $purposes = [
 
     <?php else: ?>
 
+    <?php if ($blocked_for_verification): ?>
+    <div class="alert alert-warning py-3 mb-3" style="font-size:13px; font-weight:600;">
+        <i class="fas fa-ban me-2"></i> Your account is pending verification. You cannot submit new requests until approved.
+    </div>
+    <?php endif; ?>
+
     <form method="POST" action="" id="requestForm">
+        <?= csrf_field() ?>
         <div class="section-card">
             <div class="section-header">New Request</div>
             <div class="section-body">
@@ -445,7 +473,7 @@ echo $min === $max
                                         class="qty-input" value="1" min="1" max="10"
                                         disabled
                                         onclick="event.stopPropagation()"
-                                        oninput="updateTotal()">
+                                        oninput="validateQty(this); updateTotal();">
                                 </td>
                                 <td style="text-align:right;">
                                     ₱ <span id="price_<?= $doc['id'] ?>"><?= number_format($doc['price'], 2) ?></span>
@@ -477,7 +505,7 @@ echo $min === $max
 
         <div class="text-end">
             <!-- Triggers Order Summary modal, does NOT submit directly -->
-            <button type="button" class="btn-submit-req" onclick="openOrderSummary()">
+            <button type="button" class="btn-submit-req" <?= $blocked_for_verification ? 'disabled title="Account pending verification"' : 'onclick="openOrderSummary()"' ?>>
                 <i class="fas fa-paper-plane me-2"></i>Submit Request
             </button>
         </div>
@@ -570,13 +598,23 @@ echo $min === $max
         btn.classList.add('active');
     }
 
+    // Validate and clamp quantity between 1 and 10
+    function validateQty(input) {
+        let val = parseInt(input.value);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > 10) val = 10;
+        input.value = val;
+    }
+
     // Toggle document checkbox + qty
     function toggleDoc(docId) {
         const cb  = document.getElementById('doc_' + docId);
         const qty = document.getElementById('qty_' + docId);
         cb.checked     = !cb.checked;
         qty.disabled   = !cb.checked;
-        if (!cb.checked) qty.value = 1;
+        if (!cb.checked) {
+            qty.value = 1;
+        }
         updateTotal();
     }
 
@@ -587,7 +625,10 @@ echo $min === $max
             if (cb.checked) {
                 const id    = cb.value;
                 const price = parseFloat(document.getElementById('unitprice_' + id).value);
-                const qty   = parseInt(document.getElementById('qty_' + id).value) || 1;
+                const qtyInput = document.getElementById('qty_' + id);
+                let qty     = parseInt(qtyInput.value);
+                if (isNaN(qty) || qty < 1) qty = 1;
+                if (qty > 10) qty = 10;
                 total += price * qty;
             }
         });
@@ -596,13 +637,20 @@ echo $min === $max
 
     // Open order summary modal
     function openOrderSummary() {
-        const form    = document.getElementById('requestForm');
-        const purpose = form.querySelector('select[name="purpose"]').value;
-        const pmRadio = form.querySelector('input[name="payment_method"]:checked');
+        const form        = document.getElementById('requestForm');
+        const purposeSel  = form.querySelector('select[name="purpose"]');
+        const purpose     = purposeSel ? purposeSel.value : '';
+        const otherInput  = document.getElementById('purposeOtherInput');
+        const pmRadio     = form.querySelector('input[name="payment_method"]:checked');
 
         // Validate before showing modal
         if (!purpose) {
             alert('Please select a purpose for your request.');
+            return;
+        }
+        if (purpose === 'Others' && (!otherInput || !otherInput.value.trim())) {
+            alert('Please specify your purpose in the text box.');
+            if (otherInput) otherInput.focus();
             return;
         }
         if (!pmRadio) {
@@ -617,6 +665,9 @@ echo $min === $max
         }
 
         const paymentMethod = pmRadio.value;
+        const displayPurpose = (purpose === 'Others' && otherInput && otherInput.value.trim())
+            ? 'Others: ' + otherInput.value.trim()
+            : purpose;
         let total    = 0;
         let rows     = '';
         let maxDays  = 0;
@@ -625,7 +676,10 @@ echo $min === $max
             const id       = cb.value;
             const name     = document.getElementById('docname_' + id).value;
             const price    = parseFloat(document.getElementById('unitprice_' + id).value);
-            const qty      = parseInt(document.getElementById('qty_' + id).value) || 1;
+            const qtyInput = document.getElementById('qty_' + id);
+            let qty        = parseInt(qtyInput.value);
+            if (isNaN(qty) || qty < 1) qty = 1;
+            if (qty > 10) qty = 10;
             const subtotal = price * qty;
             const docMax   = parseInt(document.getElementById('maxdays_' + id).value) || 5;
             total   += subtotal;
@@ -644,7 +698,7 @@ echo $min === $max
             year: 'numeric', month: 'long', day: 'numeric'
         });
 
-        document.getElementById('summaryPurpose').textContent     = purpose;
+        document.getElementById('summaryPurpose').textContent     = displayPurpose;
         document.getElementById('summaryPayment').textContent     = paymentMethod;
         document.getElementById('summaryReleaseDate').textContent = releaseFmt;
         document.getElementById('summaryItems').innerHTML         = rows;

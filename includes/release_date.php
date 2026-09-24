@@ -89,3 +89,43 @@ function calculateReleaseDate(int $working_days, string $from_date = ''): string
 
     return $current->format('Y-m-d');
 }
+
+/**
+ * Calculates the number of working days elapsed between $startDate and $endDate (or today).
+ * Skips weekends (Saturday, Sunday) and Philippine public holidays.
+ *
+ * @param string $startDate Start date (Y-m-d or date string)
+ * @param string|null $endDate End date (Y-m-d or date string, defaults to now)
+ * @return int Number of working days
+ */
+function calculateWorkingDays(string $startDate, ?string $endDate = null): int
+{
+    if (empty($startDate)) return 0;
+    try {
+        $start = new DateTime($startDate);
+        $end   = $endDate ? new DateTime($endDate) : new DateTime();
+
+        $start->setTime(0, 0, 0);
+        $end->setTime(0, 0, 0);
+
+        if ($start > $end) return 0;
+
+        $holidays = getPhHolidays();
+        $days = 0;
+        $current = clone $start;
+
+        while ($current <= $end) {
+            $dow = (int)$current->format('N');
+            $ymd = $current->format('Y-m-d');
+            if ($dow < 6 && !in_array($ymd, $holidays)) {
+                $days++;
+            }
+            $current->modify('+1 day');
+        }
+
+        return $days;
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+

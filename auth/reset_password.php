@@ -18,7 +18,7 @@ if (!empty($token)) {
         SELECT id, first_name, last_name, email
         FROM users
         WHERE reset_token = ?
-          AND reset_token_expires > NOW()
+          AND reset_token_expires > UTC_TIMESTAMP()
         LIMIT 1
     ");
     $stmt->execute([$token]);
@@ -95,10 +95,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
         .btn-submit { background:var(--pup-red); color:white; border:none; padding:9px 24px; border-radius:4px; font-size:13px; font-weight:600; cursor:pointer; width:100%; transition:background 0.2s; }
         .btn-submit:hover { background:#8B2020; }
         .password-wrapper { position:relative; }
-        .password-wrapper .toggle-pass { position:absolute; right:10px; top:50%; transform:translateY(-50%); cursor:pointer; color:#aaa; font-size:13px; }
+        .password-wrapper .toggle-pass { position:absolute; right:10px; top:50%; transform:translateY(-50%); cursor:pointer; color:#aaa; font-size:13px; z-index:5; background:none; border:none; padding:0; }
         .password-wrapper .toggle-pass:hover { color:var(--pup-red); }
-        .req-list { font-size:11px; color:#888; margin-top:6px; padding-left:16px; }
-        .req-list li { margin-bottom:2px; }
+        .password-wrapper .form-control { padding-right:36px; }
+        .pwd-checklist { list-style:none; padding:8px 12px; margin-top:8px; margin-bottom:0; font-size:11px; background:#fafafa; border:1px solid #eee; border-radius:4px; }
+        .pwd-req { margin-bottom:4px; display:flex; align-items:center; gap:6px; color:#777; transition:all 0.2s; }
+        .pwd-req:last-child { margin-bottom:0; }
+        .pwd-req.valid { color:#27ae60; font-weight:600; }
+        .pwd-req.valid i { color:#27ae60; }
+        .pwd-req.invalid { color:#888; }
+        .pwd-req.invalid i { color:#bbb; }
         .back-link { display:block; text-align:center; margin-top:16px; font-size:12px; color:#888; text-decoration:none; }
         .back-link:hover { color:var(--pup-red); text-decoration:underline; }
         .footer-pup { background:#f8f8f8; border-top:1px solid #ddd; padding:12px 20px; text-align:center; font-size:12px; color:#666; }
@@ -161,26 +167,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
                     <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
 
                     <div class="mb-3">
-                        <label class="form-label">New Password</label>
+                        <label for="passInput" class="form-label">New Password</label>
                         <div class="password-wrapper">
                             <input type="password" name="password" id="passInput" class="form-control"
-                                placeholder="Enter new password" autocomplete="new-password" required>
-                            <i class="fas fa-eye toggle-pass" id="togglePass1"></i>
+                                placeholder="Enter new password" autocomplete="new-password" required
+                                aria-required="true" aria-describedby="pwdChecklist">
+                            <button type="button" class="toggle-pass" id="togglePass1" aria-label="Toggle password visibility">
+                                <i class="fas fa-eye" id="togglePass1Icon"></i>
+                            </button>
                         </div>
-                        <ul class="req-list">
-                            <li>At least 8 characters</li>
-                            <li>At least 1 uppercase letter</li>
-                            <li>At least 1 lowercase letter</li>
-                            <li>At least 1 number</li>
+                        <ul class="pwd-checklist" id="pwdChecklist" aria-live="polite">
+                            <li id="req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
+                            <li id="req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
+                            <li id="req-lower" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 lowercase letter (a-z)</li>
+                            <li id="req-num" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 number (0-9)</li>
+                            <li id="req-match" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> Passwords match</li>
                         </ul>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label">Confirm New Password</label>
+                        <label for="passInput2" class="form-label">Confirm New Password</label>
                         <div class="password-wrapper">
                             <input type="password" name="password2" id="passInput2" class="form-control"
-                                placeholder="Re-enter new password" autocomplete="new-password" required>
-                            <i class="fas fa-eye toggle-pass" id="togglePass2"></i>
+                                placeholder="Re-enter new password" autocomplete="new-password" required
+                                aria-required="true">
+                            <button type="button" class="toggle-pass" id="togglePass2" aria-label="Toggle confirm password visibility">
+                                <i class="fas fa-eye" id="togglePass2Icon"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -206,16 +219,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-function makeToggle(btnId, inputId) {
+function makeToggle(btnId, iconId, inputId) {
     document.getElementById(btnId)?.addEventListener('click', function () {
         const inp = document.getElementById(inputId);
-        inp.type  = inp.type === 'password' ? 'text' : 'password';
-        this.classList.toggle('fa-eye');
-        this.classList.toggle('fa-eye-slash');
+        const icon = document.getElementById(iconId);
+        if (inp && icon) {
+            const isPassword = inp.type === 'password';
+            inp.type = isPassword ? 'text' : 'password';
+            icon.classList.toggle('fa-eye', !isPassword);
+            icon.classList.toggle('fa-eye-slash', isPassword);
+        }
     });
 }
-makeToggle('togglePass1', 'passInput');
-makeToggle('togglePass2', 'passInput2');
+makeToggle('togglePass1', 'togglePass1Icon', 'passInput');
+makeToggle('togglePass2', 'togglePass2Icon', 'passInput2');
+
+// Live Password Checklist validation
+const pwdInput = document.getElementById('passInput');
+const confirmInput = document.getElementById('passInput2');
+
+function updatePwdRequirement(elemId, isValid) {
+    const elem = document.getElementById(elemId);
+    if (!elem) return;
+    const icon = elem.querySelector('i');
+    if (isValid) {
+        elem.classList.remove('invalid');
+        elem.classList.add('valid');
+        if (icon) {
+            icon.className = 'fas fa-circle-check';
+        }
+    } else {
+        elem.classList.remove('valid');
+        elem.classList.add('invalid');
+        if (icon) {
+            icon.className = 'fas fa-circle-xmark';
+        }
+    }
+}
+
+function checkPasswordComplexity() {
+    if (!pwdInput) return;
+    const val = pwdInput.value;
+    const confVal = confirmInput ? confirmInput.value : '';
+
+    updatePwdRequirement('req-len', val.length >= 8);
+    updatePwdRequirement('req-upper', /[A-Z]/.test(val));
+    updatePwdRequirement('req-lower', /[a-z]/.test(val));
+    updatePwdRequirement('req-num', /[0-9]/.test(val));
+    updatePwdRequirement('req-match', val.length > 0 && val === confVal);
+}
+
+if (pwdInput) {
+    pwdInput.addEventListener('input', checkPasswordComplexity);
+}
+if (confirmInput) {
+    confirmInput.addEventListener('input', checkPasswordComplexity);
+}
 </script>
 </body>
 </html>

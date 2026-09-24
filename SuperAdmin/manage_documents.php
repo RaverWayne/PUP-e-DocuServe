@@ -1,6 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
     header("Location: ../auth/login.php");
@@ -10,6 +12,10 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
 $admin_name = $_SESSION['admin_name'];
 $success = '';
 $error   = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
+}
 
 // Add document
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
@@ -127,7 +133,7 @@ $current_page = 'documents';
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-file-invoice me-2" style="color:var(--sa-color);"></i>Manage Documents</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -144,6 +150,7 @@ $current_page = 'documents';
             <div class="section-header">Add New Document</div>
             <div class="section-body">
                 <form method="POST">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="action" value="add">
                     <div class="row g-3">
                         <div class="col-md-4">
@@ -211,6 +218,7 @@ $current_page = 'documents';
                                         <i class="fas fa-edit"></i> Edit
                                     </button>
                                     <form method="POST" style="display:inline;">
+                                        <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="toggle">
                                         <input type="hidden" name="doc_id" value="<?= $doc['id'] ?>">
                                         <input type="hidden" name="new_status" value="<?= $doc['is_active'] ? 0 : 1 ?>">
@@ -243,6 +251,7 @@ $current_page = 'documents';
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST">
+                <?= csrf_field() ?>
                 <input type="hidden" name="action" value="edit">
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="doc_id" id="editDocId">

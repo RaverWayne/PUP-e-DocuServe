@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
     header("Location: ../auth/login.php");
@@ -19,6 +20,38 @@ $claimed   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = '
 $walkin    = $pdo->query("SELECT COUNT(*) FROM requests WHERE bank_slip_path = 'walkin' AND payment_status = 'Pending Verification'")->fetchColumn();
 $unpaid    = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Unpaid'")->fetchColumn();
 $pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Pending Verification'")->fetchColumn();
+
+// Turnaround time and SLA metrics
+$avg_tat = $pdo->query("
+    SELECT ROUND(AVG(DATEDIFF(COALESCE(date_released, updated_at), date_filed)), 1)
+    FROM requests
+    WHERE request_status IN ('Claimed', 'Ready for Pickup')
+")->fetchColumn();
+$avg_tat = ($avg_tat !== null && $avg_tat !== false) ? $avg_tat : 0;
+
+$sla_stats = $pdo->query("
+    SELECT
+        COUNT(*) as total_with_target,
+        SUM(CASE WHEN DATE(COALESCE(date_released, updated_at)) <= tentative_release_date THEN 1 ELSE 0 END) as on_time
+    FROM requests
+    WHERE request_status IN ('Claimed', 'Ready for Pickup') AND tentative_release_date IS NOT NULL
+")->fetch();
+$sla_rate = ($sla_stats && $sla_stats['total_with_target'] > 0)
+    ? round(($sla_stats['on_time'] / $sla_stats['total_with_target']) * 100)
+    : 100;
+
+$overdue_count = $pdo->query("
+    SELECT COUNT(*) FROM requests
+    WHERE request_status IN ('Pending', 'Processing')
+      AND tentative_release_date IS NOT NULL
+      AND tentative_release_date < CURDATE()
+")->fetchColumn();
+
+$due_today_count = $pdo->query("
+    SELECT COUNT(*) FROM requests
+    WHERE request_status IN ('Pending', 'Processing')
+      AND tentative_release_date = CURDATE()
+")->fetchColumn();
 
 // Recent requests
 $recent = $pdo->query("
@@ -220,8 +253,8 @@ $recent = $pdo->query("
         <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>
     <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
+        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
+        <div style="font-size:11px; color:#888;">Biñan Campus</div>
     </div>
 </div>
 
@@ -229,7 +262,7 @@ $recent = $pdo->query("
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-tachometer-alt me-2" style="color:var(--pup-red);"></i>Dashboard</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -297,6 +330,56 @@ $recent = $pdo->query("
                 </div>
             </div>
         </div>
+
+        <!-- SLA & PERFORMANCE METRICS -->
+        <div class="row g-3 mb-4" style="margin-top:-8px;">
+            <div class="col-md-3 col-sm-6">
+                <div class="summary-card" style="border-left-color: #2c3e50;">
+                    <div class="card-icon" style="background: #2c3e50;"><i class="fas fa-stopwatch"></i></div>
+                    <div class="card-info">
+                        <div class="card-num"><?= $avg_tat ?> <span style="font-size:12px; font-weight:normal; color:#888;">days</span></div>
+                        <div class="card-label">Avg. Turnaround Time</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="summary-card" style="border-left-color: #27ae60;">
+                    <div class="card-icon" style="background: #27ae60;"><i class="fas fa-award"></i></div>
+                    <div class="card-info">
+                        <div class="card-num"><?= $sla_rate ?>%</div>
+                        <div class="card-label">SLA Compliance Rate</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="summary-card" style="border-left-color: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;">
+                    <div class="card-icon" style="background: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;"><i class="fas fa-calendar-check"></i></div>
+                    <div class="card-info">
+                        <div class="card-num"><?= $due_today_count ?></div>
+                        <div class="card-label">Requests Due Today</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="summary-card" style="border-left-color: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;">
+                    <div class="card-icon" style="background: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;"><i class="fas <?= $overdue_count > 0 ? 'fa-exclamation-triangle' : 'fa-check' ?>"></i></div>
+                    <div class="card-info">
+                        <div class="card-num"><?= $overdue_count ?></div>
+                        <div class="card-label">Overdue Target Date</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <?php if ($overdue_count > 0): ?>
+            <div class="alert alert-danger d-flex align-items-center mb-3 py-2 px-3" role="alert" style="font-size:12px;">
+                <i class="fas fa-exclamation-circle me-2 fs-5"></i>
+                <div class="flex-grow-1">
+                    <strong>Attention Needed:</strong> There are <strong><?= $overdue_count ?></strong> active requests that have passed their tentative release date.
+                </div>
+                <a href="manage_requests.php?status=Pending" class="btn btn-sm btn-outline-danger ms-2" style="font-size:11px;">View Active Requests</a>
+            </div>
+        <?php endif; ?>
 
         <!-- RECENT REQUESTS -->
         <div class="section-card">

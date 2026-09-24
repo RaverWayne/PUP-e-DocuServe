@@ -1,7 +1,9 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once "../includes/session_timeout.php";
 require_once '../includes/mailer.php';
+require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
     header("Location: ../auth/login.php");
@@ -16,6 +18,7 @@ $error   = '';
 
 // Handle Approve / Reject
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_action'])) {
+    csrf_verify();
     $target_id = intval($_POST['student_id']);
     $action    = $_POST['verify_action']; // 'approve' or 'reject'
 
@@ -163,15 +166,15 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
         <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>
     <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
+        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
+        <div style="font-size:11px; color:#888;">Biñan Campus</div>
     </div>
 </div>
 
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-users me-2" style="color:var(--pup-red);"></i>Students</div>
-        <div class="topbar-user">Welcome, <strong><?= htmlspecialchars($admin_name) ?></strong> &nbsp;|&nbsp; <?= date('F d, Y') ?></div>
+        <?php $account_href = 'account_settings.php'; include __DIR__ . '/../includes/admin_topbar.php'; ?>
     </div>
 
     <div class="page-content">
@@ -254,11 +257,7 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
                             <td>
                                 <?php
                                 $vs    = $s['verification_status'] ?? 'Pending Verification';
-                                $vscls = match($vs) {
-                                    'Active'   => 'vs-active',
-                                    'Rejected' => 'vs-rejected',
-                                    default    => 'vs-pending',
-                                };
+                                $vscls = ($vs === 'Active') ? 'vs-active' : (($vs === 'Rejected') ? 'vs-rejected' : 'vs-pending');
                                 ?>
                                 <span class="badge <?= $vscls ?>"><?= htmlspecialchars($vs) ?></span>
                             </td>
@@ -267,11 +266,13 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
                                 <?php if (($s['verification_status'] ?? '') === 'Pending Verification'): ?>
                                     <div style="display:flex; gap:4px; justify-content:center;">
                                         <form method="POST" style="display:inline;">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                             <input type="hidden" name="verify_action" value="approve">
                                             <button type="submit" class="btn-approve"><i class="fas fa-check me-1"></i>Approve</button>
                                         </form>
                                         <form method="POST" style="display:inline;">
+                                            <?= csrf_field() ?>
                                             <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                             <input type="hidden" name="verify_action" value="reject">
                                             <button type="submit" class="btn-reject" onclick="return confirm('Reject this student account?')">
@@ -281,6 +282,7 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
                                     </div>
                                 <?php elseif (($s['verification_status'] ?? '') === 'Rejected'): ?>
                                     <form method="POST" style="display:inline;">
+                                        <?= csrf_field() ?>
                                         <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                         <input type="hidden" name="verify_action" value="approve">
                                         <button type="submit" class="btn-approve"><i class="fas fa-undo me-1"></i>Re-approve</button>
