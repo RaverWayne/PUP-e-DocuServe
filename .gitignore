@@ -2,7 +2,6 @@
 # Each teammate's WAMP setup may have different DB credentials.
 .env
 .env.local
-config/db.php
 
 # ── User-uploaded content ────────────────────────────────────
 # Bank slips, profile photos, PDF header/footer templates — this
