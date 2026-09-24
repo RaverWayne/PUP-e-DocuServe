@@ -37,9 +37,9 @@ if (!empty($dbUrl)) {
 } else {
    $host = getenv('MYSQLHOST') ?: 'localhost';
    $port = getenv('MYSQLPORT') ?: 3306;
-   $db   = getenv('MYSQLDATABASE') ?: 'edocuserve';
-   $user = getenv('MYSQLUSER') ?: 'root';
-   $pass = getenv('MYSQLPASSWORD') ?: '';
+   $dbname = getenv('MYSQLDATABASE') ?: 'edocuserve';
+   $username = getenv('MYSQLUSER') ?: 'root';
+   $password = getenv('MYSQLPASSWORD') ?: '';
 }
 
 try {
