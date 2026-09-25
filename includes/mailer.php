@@ -1,71 +1,69 @@
 <?php
 /**
  * PUP e-DocuServe — Mailer Helper
- * Wraps PHPMailer with SMTP config pulled from system_settings table.
+ * Sends email through Brevo's transactional HTTPS API (api.brevo.com).
+ * Switched away from PHPMailer/SMTP because Railway's Free/Hobby plans
+ * block outbound SMTP ports (25/465/587) at the network level — the
+ * HTTPS API runs over port 443, which is never blocked.
  * All outgoing email goes through sendMail().
  */
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
-use PHPMailer\PHPMailer\Exception;
-
-require_once __DIR__ . '/phpmailer/Exception.php';
-require_once __DIR__ . '/phpmailer/SMTP.php';
-require_once __DIR__ . '/phpmailer/PHPMailer.php';
 
 // ─────────────────────────────────────────────────────────────
 // Core send function
 // ─────────────────────────────────────────────────────────────
 function sendMail(PDO $pdo, string $toEmail, string $toName, string $subject, string $htmlBody, string $plainBody = ''): bool
 {
-    // Pull SMTP config from DB
+    // Pull Brevo config from DB
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings
-                          WHERE setting_key IN ('smtp_host','smtp_port','smtp_user','smtp_pass','smtp_secure','smtp_from_name','smtp_from_email')");
+                          WHERE setting_key IN ('brevo_api_key','smtp_from_name','smtp_from_email')");
     $cfg  = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $cfg[$row['setting_key']] = $row['setting_value'];
     }
 
-    $host      = $cfg['smtp_host']       ?? '';
-    $port      = intval($cfg['smtp_port'] ?? 587);
-    $user      = $cfg['smtp_user']       ?? '';
-    $pass      = $cfg['smtp_pass']       ?? '';
-    $secure    = $cfg['smtp_secure']     ?? 'tls';   // 'tls', 'ssl', or ''
+    $apiKey    = $cfg['brevo_api_key']   ?? '';
     $fromName  = $cfg['smtp_from_name']  ?? 'PUP e-DocuServe';
-    $fromEmail = !empty($cfg['smtp_from_email']) ? $cfg['smtp_from_email'] : ($user ?: 'noreply@pup.edu.ph');
+    $fromEmail = $cfg['smtp_from_email'] ?? 'noreply@pup.edu.ph';
 
-    // If SMTP not configured yet, log and silently skip — never crash the page
-    if (empty($host) || empty($user)) {
-        error_log("[mailer] SMTP not configured. Skipping email to $toEmail — Subject: $subject");
+    // If Brevo isn't configured yet, log and silently skip — never crash the page
+    if (empty($apiKey) || empty($fromEmail)) {
+        error_log("[mailer] Brevo API not configured. Skipping email to $toEmail — Subject: $subject");
         return false;
     }
 
-    $mail = new PHPMailer(true);
-    try {
-        $mail->isSMTP();
-        $mail->Host       = $host;
-        $mail->SMTPAuth   = true;
-        $mail->Username   = $user;
-        $mail->Password   = $pass;
-        $mail->SMTPSecure = $secure;
-        $mail->Port       = $port;
-        $mail->CharSet    = 'UTF-8';
+    $payload = [
+        'sender'      => ['name' => $fromName, 'email' => $fromEmail],
+        'to'          => [['email' => $toEmail, 'name' => $toName ?: $toEmail]],
+        'replyTo'     => ['name' => $fromName, 'email' => $fromEmail],
+        'subject'     => $subject,
+        'htmlContent' => $htmlBody,
+        'textContent' => $plainBody ?: strip_tags($htmlBody),
+    ];
 
-        $mail->setFrom($fromEmail, $fromName);
-        $mail->addAddress($toEmail, $toName);
-        $mail->addReplyTo($fromEmail, $fromName);
+    $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => [
+            'accept: application/json',
+            'content-type: application/json',
+            'api-key: ' . $apiKey,
+        ],
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+    $response  = curl_exec($ch);
+    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
 
-        $mail->isHTML(true);
-        $mail->Subject = $subject;
-        $mail->Body    = $htmlBody;
-        $mail->AltBody = $plainBody ?: strip_tags($htmlBody);
-
-        $mail->send();
+    // Brevo returns 201 Created on success
+    if ($httpCode === 201) {
         return true;
-    } catch (Exception $e) {
-        error_log("[mailer] Failed to send to $toEmail — " . $mail->ErrorInfo);
-        return false;
     }
+
+    error_log("[mailer] Brevo send failed to $toEmail — HTTP $httpCode — " . ($curlError ?: $response));
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────

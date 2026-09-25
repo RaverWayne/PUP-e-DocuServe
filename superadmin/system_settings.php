@@ -21,7 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'school_year', 'office_hours', 'office_contact', 'office_email',
             'processing_notice', 'bank_name', 'bank_account_name',
             'bank_account_number', 'maintenance_mode',
-            'smtp_host', 'smtp_port', 'smtp_user', 'smtp_secure',
             'smtp_from_name', 'smtp_from_email'
         ];
         foreach ($keys as $key) {
@@ -30,10 +29,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([$_POST[$key], $key]);
             }
         }
-        // SMTP password — only update if submitted
-        if (!empty($_POST['smtp_pass'])) {
-            $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = 'smtp_pass'")
-                ->execute([$_POST['smtp_pass']]);
+        // Brevo API key — only update if submitted (upsert, since it may not exist yet)
+        if (!empty($_POST['brevo_api_key'])) {
+            $exists = $pdo->query("SELECT COUNT(*) FROM system_settings WHERE setting_key = 'brevo_api_key'")->fetchColumn();
+            if ($exists) {
+                $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = 'brevo_api_key'")
+                    ->execute([$_POST['brevo_api_key']]);
+            } else {
+                $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('brevo_api_key', ?)")
+                    ->execute([$_POST['brevo_api_key']]);
+            }
         }
         if (!$success) {
             $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role) VALUES (?, ?, ?, ?)")
@@ -192,66 +197,40 @@ $current_page = 'settings';
                 </div>
             </div>
 
-            <!-- Email / SMTP Settings -->
+            <!-- Email / Brevo API Settings -->
             <div class="section-card">
-                <div class="section-header"><i class="fas fa-envelope me-2" style="color:#3498db;"></i>Email Notifications (SMTP)</div>
+                <div class="section-header"><i class="fas fa-envelope me-2" style="color:#3498db;"></i>Email Notifications (Brevo API)</div>
                 <div class="section-body">
                     <div style="font-size:12px; color:#888; margin-bottom:16px; padding:10px 14px; background:#f0f4ff; border-radius:6px; border-left:4px solid #3498db;">
                         <i class="fas fa-info-circle me-1"></i>
-                        Configure SMTP to enable email notifications (account approvals, request status updates) and the Forgot Password flow.
-                        Leave blank to disable email sending without breaking other features.
-                        <br><strong>Gmail tip:</strong> Use <code>smtp.gmail.com</code>, port <code>587</code>, security <code>TLS</code>, and an
-                        <a href="https://support.google.com/accounts/answer/185833" target="_blank" style="color:#3498db;">App Password</a> (not your regular Gmail password).
+                        Sends email through Brevo's HTTPS API (not SMTP), so it works on hosts like Railway that block outbound SMTP ports.
+                        Leave the API key blank to disable email sending without breaking other features.
+                        <br><strong>Where to get this:</strong> Brevo dashboard → <em>SMTP &amp; API</em> → <em>API keys &amp; MCP</em> tab → Generate API key.
+                        This is <strong>not</strong> the same as an SMTP key.
                     </div>
                     <div class="row g-3">
-                        <div class="col-md-5">
-                            <label class="form-label">SMTP Host</label>
-                            <input type="text" name="smtp_host" class="form-control"
-                                value="<?= htmlspecialchars($settings['smtp_host'] ?? '') ?>"
-                                placeholder="e.g. smtp.gmail.com">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">Port</label>
-                            <input type="number" name="smtp_port" class="form-control"
-                                value="<?= htmlspecialchars($settings['smtp_port'] ?? '587') ?>"
-                                placeholder="587">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Encryption</label>
-                            <select name="smtp_secure" class="form-select">
-                                <option value="tls" <?= ($settings['smtp_secure'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>TLS (port 587 — recommended)</option>
-                                <option value="ssl" <?= ($settings['smtp_secure'] ?? '') === 'ssl' ? 'selected' : '' ?>>SSL (port 465)</option>
-                                <option value=""    <?= ($settings['smtp_secure'] ?? '') === ''    ? 'selected' : '' ?>>None (port 25)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2" style="display:flex; align-items:flex-end;">
-                            <button type="button" id="btnTestSmtp" class="btn-save w-100" style="background:#3498db; padding:7px 12px;">
-                                <i class="fas fa-plug me-1"></i> Test
-                            </button>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">SMTP Username</label>
-                            <input type="text" name="smtp_user" class="form-control"
-                                value="<?= htmlspecialchars($settings['smtp_user'] ?? '') ?>"
-                                placeholder="your@gmail.com or provider token">
-                        </div>
-                        <div class="col-md-6">
+                        <div class="col-md-9">
                             <label class="form-label">
-                                SMTP Password / App Password
+                                Brevo API Key
                                 <span style="font-weight:400; color:#888;">(leave blank to keep current)</span>
                             </label>
                             <div style="position:relative;">
-                                <input type="password" name="smtp_pass" id="smtpPassInput" class="form-control"
-                                    placeholder="<?= !empty($settings['smtp_pass']) ? '••••••••••••' : 'Enter password' ?>"
+                                <input type="password" name="brevo_api_key" id="brevoApiKeyInput" class="form-control"
+                                    placeholder="<?= !empty($settings['brevo_api_key']) ? '••••••••••••' : 'xkeysib-...' ?>"
                                     autocomplete="new-password">
-                                <i class="fas fa-eye" id="toggleSmtpPass"
+                                <i class="fas fa-eye" id="toggleBrevoKey"
                                    style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:#aaa;font-size:13px;"></i>
                             </div>
-                            <?php if (!empty($settings['smtp_pass'])): ?>
+                            <?php if (!empty($settings['brevo_api_key'])): ?>
                                 <div style="font-size:11px; color:#27ae60; margin-top:3px;">
-                                    <i class="fas fa-check-circle me-1"></i>Password is saved. Leave blank to keep it.
+                                    <i class="fas fa-check-circle me-1"></i>API key is saved. Leave blank to keep it.
                                 </div>
                             <?php endif; ?>
+                        </div>
+                        <div class="col-md-3" style="display:flex; align-items:flex-end;">
+                            <button type="button" id="btnTestBrevo" class="btn-save w-100" style="background:#3498db; padding:7px 12px;">
+                                <i class="fas fa-plug me-1"></i> Test
+                            </button>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">From Name</label>
@@ -264,11 +243,14 @@ $current_page = 'settings';
                             <input type="email" name="smtp_from_email" class="form-control"
                                 value="<?= htmlspecialchars($settings['smtp_from_email'] ?? '') ?>"
                                 placeholder="noreply@pup.edu.ph">
+                            <div style="font-size:11px; color:#888; margin-top:3px;">
+                                Must be a verified sender in your Brevo account (Senders &amp; IP → Senders).
+                            </div>
                         </div>
                     </div>
 
                     <!-- Test result area -->
-                    <div id="smtpTestResult" style="display:none; margin-top:14px;"></div>
+                    <div id="brevoTestResult" style="display:none; margin-top:14px;"></div>
                 </div>
             </div>
 
@@ -284,35 +266,25 @@ $current_page = 'settings';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// SMTP password toggle
-document.getElementById('toggleSmtpPass')?.addEventListener('click', function () {
-    const inp = document.getElementById('smtpPassInput');
+// Brevo API key toggle
+document.getElementById('toggleBrevoKey')?.addEventListener('click', function () {
+    const inp = document.getElementById('brevoApiKeyInput');
     inp.type  = inp.type === 'password' ? 'text' : 'password';
     this.classList.toggle('fa-eye');
     this.classList.toggle('fa-eye-slash');
 });
 
-// SMTP connection test
-document.getElementById('btnTestSmtp')?.addEventListener('click', function () {
-    const host   = document.querySelector('[name=smtp_host]').value.trim();
-    const port   = document.querySelector('[name=smtp_port]').value.trim();
-    const user   = document.querySelector('[name=smtp_user]').value.trim();
-    const pass   = document.querySelector('[name=smtp_pass]').value.trim();
-    const secure = document.querySelector('[name=smtp_secure]').value;
-    const result = document.getElementById('smtpTestResult');
-
-    if (!host || !user) {
-        result.style.display = 'block';
-        result.innerHTML = '<div class="alert alert-warning py-2" style="font-size:12px;"><i class="fas fa-exclamation-triangle me-1"></i>Please fill in SMTP Host and Username before testing.</div>';
-        return;
-    }
+// Brevo API key test
+document.getElementById('btnTestBrevo')?.addEventListener('click', function () {
+    const apiKey = document.querySelector('[name=brevo_api_key]').value.trim();
+    const result = document.getElementById('brevoTestResult');
 
     this.disabled = true;
     this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Testing…';
     result.style.display = 'none';
 
-    const params = new URLSearchParams({ action:'test_smtp', host, port, user, pass, secure });
-    fetch('smtp_test.php', { method:'POST', body: params })
+    const params = new URLSearchParams({ action: 'test_brevo', api_key: apiKey });
+    fetch('brevo_test.php', { method: 'POST', body: params })
         .then(r => r.json())
         .then(data => {
             result.style.display = 'block';
