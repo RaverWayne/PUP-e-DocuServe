@@ -39,8 +39,28 @@ function getPhHolidays(): array
         ];
 
         // Moveable holidays — Maundy Thursday & Good Friday
-        // Calculated from Easter Sunday
-        $easter         = easter_date($y);
+        // Calculated from Easter Sunday (works with or without calendar extension)
+        $easter = null;
+        if (function_exists('easter_date')) {
+            $easter = easter_date($y);
+        } else {
+            // Fallback: Easter approx (Meeus/Jones/Butcher algorithm) — no extension needed
+            $a = $y % 19;
+            $b = intdiv($y, 100);
+            $c = $y % 100;
+            $d = intdiv($b, 4);
+            $e = $b % 4;
+            $f = intdiv($b + 8, 25);
+            $g = intdiv($b - $f + 1, 3);
+            $h = (19 * $a + $b - $d - $g + 15) % 30;
+            $i = intdiv($c, 4);
+            $k = $c % 4;
+            $l = (32 + 2 * $e + 2 * $i - $h - $k) % 7;
+            $m = intdiv($a + 11 * $h + 22 * $l, 451);
+            $month = intdiv($h + $l - 7 * $m + 114, 31);
+            $day   = ($h + $l - 7 * $m + 114) % 31 + 1;
+            $easter = mktime(0, 0, 0, (int)$month, (int)$day, $y);
+        }
         $maundy         = date('Y-m-d', $easter - (3 * 86400));
         $good_friday    = date('Y-m-d', $easter - (2 * 86400));
         $black_saturday = date('Y-m-d', $easter - 86400);
