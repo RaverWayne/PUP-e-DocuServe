@@ -28,9 +28,6 @@ function handleTemplateUpload($pdo, $fileInputName, $settingKey, $filePrefix, $a
         'png'  => ['image/png'],
         'jpg'  => ['image/jpeg'],
         'jpeg' => ['image/jpeg'],
-        'pdf'  => ['application/pdf'],
-        'doc'  => ['application/msword'],
-        'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
     ];
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     $fileSize = $file['size'];
@@ -39,42 +36,59 @@ function handleTemplateUpload($pdo, $fileInputName, $settingKey, $filePrefix, $a
     $realMime = $finfo->file($file['tmp_name']);
 
     if (!isset($allowedTypes[$ext])) {
-        $error = "Only PNG, JPG, PDF, DOC, or DOCX files are allowed for the export template.";
+        $error = "Only PNG or JPG images are allowed for the export template.";
         return;
     }
     if (!in_array($realMime, $allowedTypes[$ext])) {
         $error = "The uploaded file's content doesn't match a valid $ext file.";
         return;
     }
-    if ($fileSize > 5 * 1024 * 1024) { // 5MB limit
+    if ($fileSize > 5 * 1024 * 1024) {
         $error = "Template file must be less than 5MB.";
         return;
     }
 
-    $uploadDir  = '../assets/uploads/';
-    $fileName   = $filePrefix . '_' . time() . '.' . $ext;
-    $uploadPath = $uploadDir . $fileName;
+    // Upload to Cloudinary
+    require_once '../includes/cloudinary.php';
+    $cloudinary = getCloudinary();
 
-    if (!move_uploaded_file($file['tmp_name'], $uploadPath)) {
-        $error = "Failed to upload template file.";
-        return;
+    if ($cloudinary !== null) {
+        try {
+            $publicId     = $filePrefix . '_template';
+            $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
+                'folder'          => 'edocuserve/templates',
+                'type'            => 'upload',
+                'public_id'       => $publicId,
+                'resource_type'   => 'image',
+                'overwrite'       => true,
+                'allowed_formats' => ['png', 'jpg', 'jpeg'],
+            ]);
+            $savedValue = $uploadResult['secure_url'];
+        } catch (\Exception $e) {
+            $error = "Failed to upload template. Please try again.";
+            return;
+        }
+    } else {
+        // Fallback: local save (dev only)
+        $uploadDir  = '../assets/uploads/';
+        $fileName   = $filePrefix . '_' . time() . '.' . $ext;
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+        if (!move_uploaded_file($file['tmp_name'], $uploadDir . $fileName)) {
+            $error = "Failed to upload template file.";
+            return;
+        }
+        $savedValue = $fileName;
     }
 
-    $old = $pdo->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?");
-    $old->execute([$settingKey]);
-    $oldFile = $old->fetchColumn();
-    if ($oldFile && file_exists('../assets/uploads/' . $oldFile)) {
-        unlink('../assets/uploads/' . $oldFile);
-    }
-
+    // Upsert setting
     $exists = $pdo->prepare("SELECT COUNT(*) FROM system_settings WHERE setting_key = ?");
     $exists->execute([$settingKey]);
     if ($exists->fetchColumn() > 0) {
         $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?")
-            ->execute([$fileName, $settingKey]);
+            ->execute([$savedValue, $settingKey]);
     } else {
         $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)")
-            ->execute([$settingKey, $fileName]);
+            ->execute([$settingKey, $savedValue]);
     }
 
     $success = "Export template uploaded successfully.";
@@ -195,14 +209,27 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
     $paperSize = ($paperSizeParam === 'FOLIO') ? 'FOLIO' : 'LETTER';
 
     $headerFile    = $settings['pdf_header_image'] ?? '';
-    $headerExt     = $headerFile ? strtolower(pathinfo($headerFile, PATHINFO_EXTENSION)) : '';
+    $headerExt     = $headerFile ? strtolower(pathinfo(parse_url($headerFile, PHP_URL_PATH), PATHINFO_EXTENSION)) : '';
     $headerIsImage = in_array($headerExt, ['png', 'jpg', 'jpeg']);
-    $headerPath    = '../assets/uploads/' . $headerFile;
+    // If Cloudinary URL, download to temp file for TCPDF
+    if ($headerIsImage && str_starts_with($headerFile, 'https://')) {
+        $headerTmp = sys_get_temp_dir() . '/pdf_header_' . time() . '.' . $headerExt;
+        @file_put_contents($headerTmp, @file_get_contents($headerFile));
+        $headerPath = file_exists($headerTmp) ? $headerTmp : '';
+    } else {
+        $headerPath = $headerFile ? '../assets/uploads/' . $headerFile : '';
+    }
 
     $footerFile    = $settings['pdf_footer_image'] ?? '';
-    $footerExt     = $footerFile ? strtolower(pathinfo($footerFile, PATHINFO_EXTENSION)) : '';
+    $footerExt     = $footerFile ? strtolower(pathinfo(parse_url($footerFile, PHP_URL_PATH), PATHINFO_EXTENSION)) : '';
     $footerIsImage = in_array($footerExt, ['png', 'jpg', 'jpeg']);
-    $footerPath    = '../assets/uploads/' . $footerFile;
+    if ($footerIsImage && str_starts_with($footerFile, 'https://')) {
+        $footerTmp = sys_get_temp_dir() . '/pdf_footer_' . time() . '.' . $footerExt;
+        @file_put_contents($footerTmp, @file_get_contents($footerFile));
+        $footerPath = file_exists($footerTmp) ? $footerTmp : '';
+    } else {
+        $footerPath = $footerFile ? '../assets/uploads/' . $footerFile : '';
+    }
 
     $pdf = new PUPReportPDF($orientation, 'mm', $paperSize, true, 'UTF-8', false);
     $pdf->SetCreator('PUP e-DocuServe');
@@ -337,6 +364,10 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
 
     // Footer drawn automatically via Footer() override
     $pdf->Output(ucfirst($type) . '_Report_' . date('Ymd_His') . '.pdf', 'D');
+
+    // Clean up temp image files downloaded from Cloudinary
+    if (!empty($headerTmp) && file_exists($headerTmp)) @unlink($headerTmp);
+    if (!empty($footerTmp) && file_exists($footerTmp)) @unlink($footerTmp);
 
     $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role) VALUES (?, ?, ?, ?)")
         ->execute(["Exported $type data (PDF)", $admin_name, $_SESSION['admin_id'], $_SESSION['admin_role']]);
@@ -555,33 +586,30 @@ $current_page = 'export';
                     <label class="form-label">Header (Letterhead) <span style="font-weight:400; color:#888;">(top of exported PDF reports)</span></label>
                     <div style="margin-bottom:10px; font-size:12px; color:#888;">
                         <i class="fas fa-info-circle me-1"></i>
-                        Accepts PNG, JPG, PDF, or Word (DOC/DOCX). Recommended image size: 1200x300px. Max file size: 5MB.
+                        Accepts PNG or JPG only. Recommended image size: 1200x300px. Max file size: 5MB.
                     </div>
 
                     <?php
                     $currentHeader    = $settings['pdf_header_image'] ?? '';
-                    $currentHeaderExt = $currentHeader ? strtolower(pathinfo($currentHeader, PATHINFO_EXTENSION)) : '';
+                    $currentHeaderExt = $currentHeader ? strtolower(pathinfo(parse_url($currentHeader, PHP_URL_PATH), PATHINFO_EXTENSION)) : '';
                     $headerImgOk      = in_array($currentHeaderExt, ['png', 'jpg', 'jpeg']);
+                    $headerDisplayUrl = $headerImgOk ? (str_starts_with($currentHeader, 'https://') ? $currentHeader : '../assets/uploads/' . $currentHeader) : '';
                     ?>
 
                     <?php if ($currentHeader): ?>
                         <div style="margin-bottom:12px; padding:12px; background:#f8f8f8; border-radius:6px; border:1px solid #e0e0e0;">
                             <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Current Header:</div>
-                            <?php if ($headerImgOk): ?>
-                                <img src="../assets/uploads/<?= htmlspecialchars($currentHeader) ?>"
+                            <?php if ($headerImgOk && $headerDisplayUrl): ?>
+                                <img src="<?= htmlspecialchars($headerDisplayUrl) ?>"
                                      alt="PDF Header"
                                      style="max-width:100%; height:auto; border:1px solid #ddd; border-radius:4px;">
                                 <div style="font-size:11px; color:#28a745; margin-top:6px;">
                                     <i class="fas fa-check-circle me-1"></i>This image is applied to the top of every exported PDF.
                                 </div>
                             <?php else: ?>
-                                <div style="font-size:13px;">
-                                    <i class="fas fa-file-<?= $currentHeaderExt === 'pdf' ? 'pdf' : 'word' ?> me-2"></i>
-                                    <a href="../assets/uploads/<?= htmlspecialchars($currentHeader) ?>" target="_blank"><?= htmlspecialchars($currentHeader) ?></a>
-                                </div>
                                 <div style="font-size:11px; color:#856404; margin-top:6px;">
                                     <i class="fas fa-exclamation-triangle me-1"></i>
-                                    <?= strtoupper($currentHeaderExt) ?> files are stored for reference but can't be rendered live — only PNG/JPG are drawn into the PDF. Default text header is used until an image is uploaded.
+                                    Template stored but cannot be previewed. Upload a new PNG/JPG to replace it.
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -592,7 +620,7 @@ $current_page = 'export';
                         </div>
                     <?php endif; ?>
 
-                    <input type="file" name="pdf_header_template" class="form-control" accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,image/png,image/jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <input type="file" name="pdf_header_template" class="form-control" accept=".png,.jpg,.jpeg,image/png,image/jpeg">
                     <div style="font-size:11px; color:#999; margin-top:4px; margin-bottom:24px;">
                         Leave blank to keep the current header. Uploading a new file replaces the existing one.
                     </div>
@@ -605,28 +633,25 @@ $current_page = 'export';
 
                     <?php
                     $currentFooter    = $settings['pdf_footer_image'] ?? '';
-                    $currentFooterExt = $currentFooter ? strtolower(pathinfo($currentFooter, PATHINFO_EXTENSION)) : '';
+                    $currentFooterExt = $currentFooter ? strtolower(pathinfo(parse_url($currentFooter, PHP_URL_PATH), PATHINFO_EXTENSION)) : '';
                     $footerImgOk      = in_array($currentFooterExt, ['png', 'jpg', 'jpeg']);
+                    $footerDisplayUrl = $footerImgOk ? (str_starts_with($currentFooter, 'https://') ? $currentFooter : '../assets/uploads/' . $currentFooter) : '';
                     ?>
 
                     <?php if ($currentFooter): ?>
                         <div style="margin-bottom:12px; padding:12px; background:#f8f8f8; border-radius:6px; border:1px solid #e0e0e0;">
                             <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Current Footer:</div>
-                            <?php if ($footerImgOk): ?>
-                                <img src="../assets/uploads/<?= htmlspecialchars($currentFooter) ?>"
+                            <?php if ($footerImgOk && $footerDisplayUrl): ?>
+                                <img src="<?= htmlspecialchars($footerDisplayUrl) ?>"
                                      alt="PDF Footer"
                                      style="max-width:100%; height:auto; border:1px solid #ddd; border-radius:4px;">
                                 <div style="font-size:11px; color:#28a745; margin-top:6px;">
                                     <i class="fas fa-check-circle me-1"></i>This image is applied to the bottom of every page in exported PDFs.
                                 </div>
                             <?php else: ?>
-                                <div style="font-size:13px;">
-                                    <i class="fas fa-file-<?= $currentFooterExt === 'pdf' ? 'pdf' : 'word' ?> me-2"></i>
-                                    <a href="../assets/uploads/<?= htmlspecialchars($currentFooter) ?>" target="_blank"><?= htmlspecialchars($currentFooter) ?></a>
-                                </div>
                                 <div style="font-size:11px; color:#856404; margin-top:6px;">
                                     <i class="fas fa-exclamation-triangle me-1"></i>
-                                    <?= strtoupper($currentFooterExt) ?> files are stored for reference but can't be rendered live — only PNG/JPG are drawn into the PDF. Default text footer is used until an image is uploaded.
+                                    Template stored but cannot be previewed. Upload a new PNG/JPG to replace it.
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -637,7 +662,7 @@ $current_page = 'export';
                         </div>
                     <?php endif; ?>
 
-                    <input type="file" name="pdf_footer_template" class="form-control" accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,image/png,image/jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <input type="file" name="pdf_footer_template" class="form-control" accept=".png,.jpg,.jpeg,image/png,image/jpeg">
                     <div style="font-size:11px; color:#999; margin-top:4px;">
                         Leave blank to keep the current footer. Uploading a new file replaces the existing one.
                     </div>
