@@ -1,8 +1,8 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../includes/profile_url.php';
 
-// Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
     if (time() - $_SESSION['last_activity'] > 600) {
         session_unset();
@@ -24,37 +24,53 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
 
-// Fetch active announcements
 $announcements = $pdo->query("SELECT * FROM announcements WHERE is_active = 1 ORDER BY created_at DESC")->fetchAll();
 
 $upload_success = false;
 $upload_error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
-    $file     = $_FILES['profile_photo'];
-    $allowed  = ['image/jpeg', 'image/png', 'image/jpg'];
-    $max_size = 2 * 1024 * 1024;
+    $file      = $_FILES['profile_photo'];
+    $allowed   = ['image/jpeg', 'image/png', 'image/jpg'];
+    $max_size  = 2 * 1024 * 1024;
+    $ext_check = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
-    if (!in_array($file['type'], $allowed)) {
+    if (!in_array($file['type'], $allowed) || !in_array($ext_check, ['jpg','jpeg','png'])) {
         $upload_error = "Only JPG and PNG files are allowed.";
+    } elseif (!in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), ['image/jpeg','image/png'])) {
+        $upload_error = "The uploaded file's content doesn't match a valid image.";
     } elseif ($file['size'] > $max_size) {
         $upload_error = "File size must not exceed 2MB.";
     } else {
-        $ext      = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $filename = 'user_' . $user_id . '_' . time() . '.' . $ext;
-        $dest     = '../assets/uploads/' . $filename;
-
-        if (!is_dir('../assets/uploads/')) {
-            mkdir('../assets/uploads/', 0755, true);
-        }
-
-        if (move_uploaded_file($file['tmp_name'], $dest)) {
-            $stmt = $pdo->prepare("UPDATE users SET profile_photo = ? WHERE id = ?");
-            $stmt->execute([$filename, $user_id]);
-            $user['profile_photo'] = $filename;
-            $upload_success        = true;
+        $cloudinary = getCloudinary();
+        if ($cloudinary !== null) {
+            try {
+                $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
+                    'folder'          => 'edocuserve/profiles/students',
+                    'type'            => 'authenticated',
+                    'public_id'       => 'student_' . $user_id,
+                    'resource_type'   => 'image',
+                    'overwrite'       => true,
+                    'allowed_formats' => ['jpg','jpeg','png'],
+                ]);
+                $savedPath = $uploadResult['public_id'];
+                $pdo->prepare("UPDATE users SET profile_photo = ? WHERE id = ?")->execute([$savedPath, $user_id]);
+                $user['profile_photo'] = $savedPath;
+                $upload_success = true;
+            } catch (\Exception $e) {
+                $upload_error = "Failed to upload photo. Please try again.";
+            }
         } else {
-            $upload_error = "Failed to upload photo. Please try again.";
+            $filename = 'user_' . $user_id . '_' . time() . '.' . $ext_check;
+            $dest     = '../assets/uploads/' . $filename;
+            if (!is_dir('../assets/uploads/')) mkdir('../assets/uploads/', 0755, true);
+            if (move_uploaded_file($file['tmp_name'], $dest)) {
+                $pdo->prepare("UPDATE users SET profile_photo = ? WHERE id = ?")->execute([$filename, $user_id]);
+                $user['profile_photo'] = $filename;
+                $upload_success = true;
+            } else {
+                $upload_error = "Failed to upload photo. Please try again.";
+            }
         }
     }
 }
@@ -77,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
             font-size: 13px;
         }
 
-        /* NAVBAR */
         .navbar-pup {
             background-color: var(--pup-red);
             padding: 8px 20px;
@@ -94,7 +109,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         .dropdown-toggle { background: none; border: none; color: white; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
         .dropdown-toggle:focus { box-shadow: none; }
 
-        /* TABS */
         .tabs-bar { background: white; border-bottom: 1px solid #ddd; padding: 0 20px; }
         .tabs-bar .nav-tabs { border-bottom: none; }
         .tabs-bar .nav-link {
@@ -106,7 +120,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         .tabs-bar .nav-link:hover { color: var(--pup-red); border-bottom-color: #ddd; }
         .tabs-bar .nav-link.active { color: var(--pup-red); border-bottom-color: var(--pup-red); font-weight: 600; }
 
-        /* CONTENT */
         .content-wrapper { max-width: 960px; margin: 24px auto; padding: 0 16px; }
 
         .section-card { background: white; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
@@ -118,7 +131,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         }
         .section-body { padding: 0; }
 
-        /* INFO TABLE ROWS */
         .info-row {
             display: grid;
             grid-template-columns: 220px 1fr;
@@ -155,7 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
             color: #333;
         }
 
-        /* EDIT BUTTON */
         .btn-edit {
             background: #f0f0f0; border: 1px solid #ccc; color: #555;
             padding: 3px 12px; border-radius: 4px; font-size: 12px;
@@ -163,7 +174,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         }
         .btn-edit:hover { background: var(--pup-red); color: white; border-color: var(--pup-red); }
 
-        /* PHOTO */
         .profile-relative { position: relative; padding-right: 130px; }
         .photo-wrapper { position: absolute; right: 0; top: 0; text-align: center; width: 115px; }
         .photo-box {
@@ -182,18 +192,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         }
         .btn-upload:hover { background: var(--pup-red); }
 
-        /* FOOTER */
         .footer-pup {
             background: #f8f8f8; border-top: 1px solid #ddd;
             padding: 12px 20px; text-align: center;
             font-size: 12px; color: #666; margin-top: 40px;
         }
         .footer-pup a { color: var(--pup-red); text-decoration: none; }
+
+        @media (max-width: 768px) {
+            .profile-relative { padding-right: 0 !important; }
+            .photo-wrapper {
+                position: static !important;
+                width: 100% !important;
+                text-align: center;
+                margin-bottom: 16px;
+            }
+            .photo-box { margin: 0 auto 8px; }
+        }
+        @media (max-width: 600px) {
+            .info-row { grid-template-columns: 1fr !important; }
+            .info-label {
+                border-right: none !important;
+                border-bottom: 1px solid #f0f0f0;
+                padding-bottom: 4px;
+            }
+            .info-value { padding-top: 4px; }
+            .content-wrapper { padding: 0 8px 40px !important; }
+        }
+        .tabs-bar .nav-tabs {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .tabs-bar .nav-tabs::-webkit-scrollbar { display: none; }
+        .tabs-bar .nav-link { white-space: nowrap; }
     </style>
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="navbar-pup">
     <a href="index.php" class="brand">
         <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
@@ -216,7 +253,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
     </div>
 </nav>
 
-<!-- TABS -->
 <div class="tabs-bar">
     <ul class="nav nav-tabs">
         <li class="nav-item"><a class="nav-link active" href="index.php"><i class="fas fa-user"></i> Profile</a></li>
@@ -226,7 +262,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
     </ul>
 </div>
 
-<!-- CONTENT -->
 <div class="content-wrapper">
 
     <?php if (!empty($announcements)): ?>
@@ -260,7 +295,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         <div class="section-body" style="padding: 16px 20px;">
             <div class="profile-relative">
 
-                <!-- Personal Information -->
                 <div class="section-card">
                     <div class="section-header">
                         Personal Information
@@ -300,7 +334,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
                     </div>
                 </div>
 
-                <!-- Educational Information -->
                 <div class="section-card mb-0">
                     <div class="section-header">
                         Educational Information
@@ -358,11 +391,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
                     </div>
                 </div>
 
-                <!-- Profile Photo -->
                 <div class="photo-wrapper">
+                    <?php $photoUrl = getProfileUrl($user['profile_photo'] ?? ''); ?>
                     <div class="photo-box">
-                        <?php if (!empty($user['profile_photo']) && file_exists('../assets/uploads/' . $user['profile_photo'])): ?>
-                            <img src="../assets/uploads/<?= htmlspecialchars($user['profile_photo']) ?>" alt="Profile">
+                        <?php if ($photoUrl): ?>
+                            <img src="<?= htmlspecialchars($photoUrl) ?>" alt="Profile">
                         <?php else: ?>
                             <i class="fas fa-user no-photo"></i>
                         <?php endif; ?>
@@ -381,12 +414,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
 
 </div>
 
-<!-- FOOTER -->
 <div class="footer-pup">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
-    <a href="#">Terms of Use</a> | <a href="#">Privacy Statement</a>
+    <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Use</a> |
+    <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Statement</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<?php include '../includes/legal_modals.php'; ?>
 </body>
 </html>

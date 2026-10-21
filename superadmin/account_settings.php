@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../includes/profile_url.php';
 require_once "../includes/session_timeout.php";
 require_once 'csrf.php';
 
@@ -20,31 +21,50 @@ $admin = $stmt->fetch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
-    // Profile photo upload
     if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
-        $file    = $_FILES['profile_photo'];
-        $allowed = ['image/jpeg', 'image/jpg', 'image/png'];
-        $ext_ok  = in_array(strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)), ['jpg','jpeg','png']);
+        $file      = $_FILES['profile_photo'];
+        $allowed   = ['image/jpeg', 'image/jpg', 'image/png'];
+        $ext_ok    = in_array(strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)), ['jpg','jpeg','png']);
+        $real_mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
         if (!in_array($file['type'], $allowed) || !$ext_ok) {
             $error = "Only JPG/JPEG/PNG images are allowed.";
-        } elseif (!in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), $allowed)) {
-            // Extension/browser-type checks above can both be spoofed by
-            // renaming a file — this checks the file's actual bytes.
+        } elseif (!in_array($real_mime, $allowed)) {
             $error = "The uploaded file's content doesn't match a valid image.";
         } elseif ($file['size'] > 5 * 1024 * 1024) {
             $error = "Photo must not exceed 5MB.";
         } else {
-            if (!is_dir('../assets/uploads/')) mkdir('../assets/uploads/', 0755, true);
-            $filename = 'admin_' . $admin_id . '_' . time() . '.' . pathinfo($file['name'], PATHINFO_EXTENSION);
-            if (move_uploaded_file($file['tmp_name'], '../assets/uploads/' . $filename)) {
-                $pdo->prepare("UPDATE admins SET profile_photo = ? WHERE id = ?")->execute([$filename, $admin_id]);
-                $admin['profile_photo'] = $filename;
-                $success = "Profile photo updated.";
+            $cloudinary = getCloudinary();
+            if ($cloudinary !== null) {
+                try {
+                    $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
+                        'folder'          => 'edocuserve/profiles/admins',
+                        'type'            => 'authenticated',
+                        'public_id'       => 'admin_' . $admin_id,
+                        'resource_type'   => 'image',
+                        'overwrite'       => true,
+                        'allowed_formats' => ['jpg','jpeg','png'],
+                    ]);
+                    $savedPath = $uploadResult['public_id'];
+                    $pdo->prepare("UPDATE admins SET profile_photo = ? WHERE id = ?")->execute([$savedPath, $admin_id]);
+                    $admin['profile_photo'] = $savedPath;
+                    $success = "Profile photo updated.";
+                } catch (\Exception $e) {
+                    $error = "Failed to upload photo. Please try again.";
+                }
+            } else {
+                $filename = 'admin_' . $admin_id . '_' . time() . '.' . pathinfo($file['name'], PATHINFO_EXTENSION);
+                if (!is_dir('../assets/uploads/')) mkdir('../assets/uploads/', 0755, true);
+                if (move_uploaded_file($file['tmp_name'], '../assets/uploads/' . $filename)) {
+                    $pdo->prepare("UPDATE admins SET profile_photo = ? WHERE id = ?")->execute([$filename, $admin_id]);
+                    $admin['profile_photo'] = $filename;
+                    $success = "Profile photo updated.";
+                } else {
+                    $error = "Failed to upload photo. Please try again.";
+                }
             }
         }
     }
 
-    // Password change
     if (isset($_POST['old_password'])) {
         $old  = $_POST['old_password'] ?? '';
         $new  = $_POST['new_password'] ?? '';
@@ -150,30 +170,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
-        <!-- PROFILE INFO -->
         <div class="section-card" style="margin-bottom:16px;">
             <div class="section-header">Account Information</div>
             <div class="section-body">
                 <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
-                    <!-- Profile Photo -->
                     <div style="text-align:center;">
-                        <?php $photo = $admin['profile_photo'] ?? null; ?>
-                        <?php if ($photo && file_exists("../assets/uploads/$photo")): ?>
-                            <img src="../assets/uploads/<?= htmlspecialchars($photo) ?>"
+                        <?php $photoUrl = getProfileUrl($admin['profile_photo'] ?? ''); ?>
+                        <?php if ($photoUrl): ?>
+                            <img src="<?= htmlspecialchars($photoUrl) ?>"
                                 style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid #ddd;">
                         <?php else: ?>
                             <div style="width:80px; height:80px; border-radius:50%; background:#e0e0e0; display:flex; align-items:center; justify-content:center; font-size:28px; color:#aaa;">
-                                <i class="fas fa-crown" style="color:var(--sa-color);"></i>
+                                <i class="fas fa-user-circle" style="color:var(--sa-color);"></i>
                             </div>
                         <?php endif; ?>
                     </div>
-                    <!-- Name & Email -->
                     <div>
                         <div style="font-size:16px; font-weight:700; color:#333;"><?= htmlspecialchars($admin['name']) ?></div>
                         <div style="font-size:13px; color:#888; margin-top:2px;"><?= htmlspecialchars($admin['email']) ?></div>
                         <span class="badge mt-1" style="background:var(--sa-color); font-size:11px;">Super Admin</span>
                     </div>
-                    <!-- Upload Photo -->
                     <div style="margin-left:auto;">
                         <form method="POST" enctype="multipart/form-data">
                             <?= csrf_field() ?>
@@ -194,7 +210,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
 
-        <!-- CHANGE PASSWORD -->
         <div class="section-card">
             <div class="section-header">Change Password</div>
             <div class="section-body">
@@ -263,7 +278,6 @@ makeToggle('toggleOldPassBtn', 'toggleOldPassIcon', 'oldPass');
 makeToggle('toggleNewPassBtn', 'toggleNewPassIcon', 'newPass');
 makeToggle('toggleConfPassBtn', 'toggleConfPassIcon', 'confPass');
 
-// Live Password Checklist validation
 const pwdInput = document.getElementById('newPass');
 const confirmInput = document.getElementById('confPass');
 

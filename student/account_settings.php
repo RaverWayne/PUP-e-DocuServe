@@ -3,7 +3,6 @@ session_start();
 require_once '../config/db.php';
 require_once 'csrf.php';
 
-// Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
     if (time() - $_SESSION['last_activity'] > 600) {
         session_unset();
@@ -140,7 +139,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="navbar-pup">
     <a href="index.php" class="brand">
         <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
@@ -163,7 +161,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </nav>
 
-<!-- TABS -->
 <div class="tabs-bar">
     <ul class="nav nav-tabs">
         <li class="nav-item"><a class="nav-link" href="index.php"><i class="fas fa-user"></i> Profile</a></li>
@@ -173,7 +170,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </ul>
 </div>
 
-<!-- CONTENT -->
 <div class="content-wrapper">
 
     <div class="section-card">
@@ -243,10 +239,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 </div>
 
-<!-- FOOTER -->
 <div class="footer-pup">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
-    <a href="#">Terms of Use</a> | <a href="#">Privacy Statement</a>
+    <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Use</a> |
+    <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Statement</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -267,7 +263,6 @@ makeToggle('toggleOldPassBtn', 'toggleOldPassIcon', 'oldPass');
 makeToggle('toggleNewPassBtn', 'toggleNewPassIcon', 'newPass');
 makeToggle('toggleConfPassBtn', 'toggleConfPassIcon', 'confirmPass');
 
-// Live Password Checklist validation
 const pwdInput = document.getElementById('newPass');
 const confirmInput = document.getElementById('confirmPass');
 
@@ -301,5 +296,6 @@ function checkPasswordComplexity() {
 if (pwdInput) pwdInput.addEventListener('input', checkPasswordComplexity);
 if (confirmInput) confirmInput.addEventListener('input', checkPasswordComplexity);
 </script>
+<?php include '../includes/legal_modals.php'; ?>
 </body>
 </html>

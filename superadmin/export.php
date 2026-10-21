@@ -12,7 +12,11 @@ $admin_name = $_SESSION['admin_name'];
 $success = '';
 $error = '';
 
-// Handle header/footer template upload
+// Load PhpSpreadsheet if available (needed for Excel export)
+if (file_exists('../vendor/autoload.php')) {
+    require_once '../vendor/autoload.php';
+}
+
 function handleTemplateUpload($pdo, $fileInputName, $settingKey, $filePrefix, $admin_name, &$success, &$error) {
     if (!isset($_FILES[$fileInputName]) || $_FILES[$fileInputName]['error'] !== UPLOAD_ERR_OK) {
         return;
@@ -56,7 +60,6 @@ function handleTemplateUpload($pdo, $fileInputName, $settingKey, $filePrefix, $a
         return;
     }
 
-    // Delete old file
     $old = $pdo->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?");
     $old->execute([$settingKey]);
     $oldFile = $old->fetchColumn();
@@ -64,7 +67,6 @@ function handleTemplateUpload($pdo, $fileInputName, $settingKey, $filePrefix, $a
         unlink('../assets/uploads/' . $oldFile);
     }
 
-    // Upsert setting
     $exists = $pdo->prepare("SELECT COUNT(*) FROM system_settings WHERE setting_key = ?");
     $exists->execute([$settingKey]);
     if ($exists->fetchColumn() > 0) {
@@ -103,16 +105,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     handleTemplateUpload($pdo, 'pdf_footer_template', 'pdf_footer_image', 'pdf_footer', $admin_name, $success, $error);
 }
 
-// Fetch settings
 $settingsStmt = $pdo->query("SELECT * FROM system_settings");
 $settings = [];
 foreach ($settingsStmt->fetchAll() as $row) {
     $settings[$row['setting_key']] = $row['setting_value'];
 }
 
-// Handle PDF export
 if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
-    // TCPDF check
     if (!file_exists('../includes/tcpdf/tcpdf.php')) {
         die('<h2>TCPDF Library Not Installed</h2>
              <p>To enable PDF export, please download TCPDF from <a href="https://github.com/tecnickcom/TCPDF/releases">GitHub</a> 
@@ -210,7 +209,6 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
     $pdf->SetAuthor('Polytechnic University of the Philippines - Biñan Campus');
     $pdf->SetTitle(ucfirst($type) . ' Report');
 
-    // Usable content width
     $usableWidth = $pdf->getPageWidth() - 30; // 15mm margin each side
     $pdf->usableWidth = $usableWidth;
     $pdf->reportTitle = ucfirst($type) . ' Report';
@@ -224,7 +222,6 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
     $pdf->setPrintHeader(true);
     $pdf->setPrintFooter(true);
 
-    // Header image sizing
     $headerContentHeight = 10; // starting offset from page top
     if ($headerIsImage && file_exists($headerPath)) {
         [$hw, $hh] = fitImageBox($headerPath, $usableWidth, 30);
@@ -275,27 +272,27 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
         $rows->execute([$date_from, $date_to]);
         $data = $rows->fetchAll();
 
-        $html = '<table border="1" cellpadding="' . $tableCellPad . '" cellspacing="0" style="font-size:' . $tableFontSize . 'px;">';
-        $html .= '<thead><tr style="background-color:#6D1A1A; color:#ffffff; font-weight:bold;">
-                    <th width="8%">Control #</th>
-                    <th width="15%">Student</th>
-                    <th width="10%">Course</th>
-                    <th width="25%">Documents</th>
-                    <th width="12%">Purpose</th>
-                    <th width="10%">Payment</th>
-                    <th width="10%">Status</th>
-                    <th width="10%">Date & Time</th>
+        $html = '<table border="1" cellpadding="' . $tableCellPad . '" cellspacing="0" style="font-size:' . $tableFontSize . 'px; width:100%;">
+                  <thead><tr style="background-color:#6D1A1A; color:#ffffff; font-weight:bold;">
+                    <th width="7%" style="width:7%;">Control #</th>
+                    <th width="15%" style="width:15%;">Student</th>
+                    <th width="8%" style="width:8%;">Course</th>
+                    <th width="22%" style="width:22%;">Documents</th>
+                    <th width="12%" style="width:12%;">Purpose</th>
+                    <th width="10%" style="width:10%;">Payment</th>
+                    <th width="10%" style="width:10%;">Status</th>
+                    <th width="16%" style="width:16%;">Date &amp; Time</th>
                   </tr></thead><tbody>';
         foreach ($data as $row) {
             $html .= '<tr>';
-            $html .= '<td>' . htmlspecialchars($row['control_number']) . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['name'] ?? 'Unknown Student') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['course'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['documents'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['purpose'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['payment_status'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['request_status'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['date_time_filed'] ?? 'N/A') . '</td>';
+            $html .= '<td width="7%" style="word-wrap:break-word;">'  . htmlspecialchars($row['control_number']) . '</td>';
+            $html .= '<td width="15%" style="word-wrap:break-word;">' . htmlspecialchars($row['name'] ?? 'Unknown Student') . '</td>';
+            $html .= '<td width="8%" style="word-wrap:break-word;">'  . htmlspecialchars($row['course'] ?? 'N/A') . '</td>';
+            $html .= '<td width="22%" style="word-wrap:break-word;">' . htmlspecialchars($row['documents'] ?? 'N/A') . '</td>';
+            $html .= '<td width="12%" style="word-wrap:break-word;">' . htmlspecialchars($row['purpose'] ?? 'N/A') . '</td>';
+            $html .= '<td width="10%">'                               . htmlspecialchars($row['payment_status'] ?? 'N/A') . '</td>';
+            $html .= '<td width="10%">'                               . htmlspecialchars($row['request_status'] ?? 'N/A') . '</td>';
+            $html .= '<td width="16%">'                               . htmlspecialchars($row['date_time_filed'] ?? 'N/A') . '</td>';
             $html .= '</tr>';
         }
         $html .= '</tbody></table>';
@@ -311,27 +308,27 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
         ");
         $data = $rows->fetchAll();
 
-        $html = '<table border="1" cellpadding="' . $tableCellPad . '" cellspacing="0" style="font-size:' . $tableFontSize . 'px;">';
-        $html .= '<thead><tr style="background-color:#6D1A1A; color:#ffffff; font-weight:bold;">
-                    <th width="12%">Student #</th>
-                    <th width="18%">Name</th>
-                    <th width="18%">Email</th>
-                    <th width="10%">Mobile</th>
-                    <th width="12%">Course</th>
-                    <th width="10%">Status</th>
-                    <th width="8%">Year</th>
-                    <th width="12%">Registered</th>
+        $html = '<table border="1" cellpadding="' . $tableCellPad . '" cellspacing="0" style="font-size:' . $tableFontSize . 'px; width:100%;">
+                  <thead><tr style="background-color:#6D1A1A; color:#ffffff; font-weight:bold;">
+                    <th width="12%" style="width:12%;">Student #</th>
+                    <th width="18%" style="width:18%;">Name</th>
+                    <th width="18%" style="width:18%;">Email</th>
+                    <th width="10%" style="width:10%;">Mobile</th>
+                    <th width="12%" style="width:12%;">Course</th>
+                    <th width="10%" style="width:10%;">Status</th>
+                    <th width="8%"  style="width:8%;">Year</th>
+                    <th width="12%" style="width:12%;">Registered</th>
                   </tr></thead><tbody>';
         foreach ($data as $row) {
             $html .= '<tr>';
-            $html .= '<td>' . htmlspecialchars($row['student_number'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['name'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['email'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['mobile_number'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['course'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['program_status'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['year_admitted'] ?? 'N/A') . '</td>';
-            $html .= '<td>' . htmlspecialchars($row['registered_date'] ?? 'N/A') . '</td>';
+            $html .= '<td width="12%" style="word-wrap:break-word;">' . htmlspecialchars($row['student_number'] ?? 'N/A') . '</td>';
+            $html .= '<td width="18%" style="word-wrap:break-word;">' . htmlspecialchars($row['name'] ?? 'N/A') . '</td>';
+            $html .= '<td width="18%" style="word-wrap:break-word;">' . htmlspecialchars($row['email'] ?? 'N/A') . '</td>';
+            $html .= '<td width="10%">'                                . htmlspecialchars($row['mobile_number'] ?? 'N/A') . '</td>';
+            $html .= '<td width="12%" style="word-wrap:break-word;">' . htmlspecialchars($row['course'] ?? 'N/A') . '</td>';
+            $html .= '<td width="10%">'                                . htmlspecialchars($row['program_status'] ?? 'N/A') . '</td>';
+            $html .= '<td width="8%">'                                 . htmlspecialchars($row['year_admitted'] ?? 'N/A') . '</td>';
+            $html .= '<td width="12%">'                                . htmlspecialchars($row['registered_date'] ?? 'N/A') . '</td>';
             $html .= '</tr>';
         }
         $html .= '</tbody></table>';
@@ -346,7 +343,100 @@ if (isset($_GET['export']) && $_GET['format'] === 'pdf') {
     exit();
 }
 
-// Handle CSV export
+if (isset($_GET['export']) && $_GET['format'] === 'excel') {
+    if (!class_exists('PhpOffice\\PhpSpreadsheet\\Spreadsheet')) {
+        die('<h2 style="font-family:sans-serif;">PhpSpreadsheet Not Installed</h2>
+             <p style="font-family:sans-serif;">Run <code>composer require phpoffice/phpspreadsheet</code> in the project root, then redeploy.</p>
+             <p><a href="export.php">← Back to Export</a></p>');
+    }
+
+    $type      = $_GET['export'];
+    $date_from = $_GET['date_from'] ?? '2000-01-01';
+    $date_to   = $_GET['date_to']   ?? date('Y-m-d');
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet       = $spreadsheet->getActiveSheet();
+
+    if ($type === 'requests') {
+        $headers = ['Control Number','Student Name','Course','Documents','Purpose','Payment Status','Request Status','Date Filed','Time Filed','Tentative Release'];
+        foreach ($headers as $i => $h) {
+            $sheet->setCellValue(chr(65 + $i) . '1', $h);
+        }
+        $sheet->getStyle('A1:J1')->applyFromArray([
+            'font'      => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
+            'fill'      => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF6D1A1A']],
+            'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER, 'wrapText' => true],
+        ]);
+
+        $rows = $pdo->prepare("
+            SELECT r.control_number, CONCAT(u.last_name,', ',u.first_name) as name,
+                   u.course,
+                   GROUP_CONCAT(d.document_name SEPARATOR '; ') as documents,
+                   r.purpose, r.payment_status, r.request_status,
+                   DATE(r.date_filed) as date_filed, TIME(r.date_filed) as time_filed,
+                   r.tentative_release_date
+            FROM requests r
+            LEFT JOIN users u ON r.user_id = u.id
+            LEFT JOIN request_items ri ON r.id = ri.request_id
+            LEFT JOIN documents d ON ri.document_id = d.id
+            WHERE DATE(r.date_filed) BETWEEN ? AND ?
+            GROUP BY r.id
+            ORDER BY r.date_filed DESC
+        ");
+        $rows->execute([$date_from, $date_to]);
+        $rowNum = 2;
+        foreach ($rows->fetchAll() as $row) {
+            $sheet->fromArray(array_values($row), null, 'A' . $rowNum);
+            $rowNum++;
+        }
+        foreach (range('A', 'J') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        $sheet->setTitle('Requests');
+        $filename = 'Requests_Report_' . date('Ymd_His') . '.xlsx';
+    }
+
+    if ($type === 'students') {
+        $headers = ['Student Number','Last Name','First Name','Middle Name','Email','Mobile','Course','Program Status','Year Admitted','Date Registered'];
+        foreach ($headers as $i => $h) {
+            $sheet->setCellValue(chr(65 + $i) . '1', $h);
+        }
+        $sheet->getStyle('A1:J1')->applyFromArray([
+            'font'      => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
+            'fill'      => ['fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF3498DB']],
+            'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER, 'wrapText' => true],
+        ]);
+
+        $rows = $pdo->query("SELECT student_number, last_name, first_name, middle_name, email, mobile_number, course, program_status, year_admitted, created_at FROM users ORDER BY last_name");
+        $rowNum = 2;
+        foreach ($rows->fetchAll() as $row) {
+            $sheet->fromArray(array_values($row), null, 'A' . $rowNum);
+            $rowNum++;
+        }
+        foreach (range('A', 'J') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+        $sheet->setTitle('Students');
+        $filename = 'Students_Report_' . date('Ymd_His') . '.xlsx';
+    }
+
+    if (!isset($filename)) {
+        header("Location: export.php");
+        exit();
+    }
+
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+    $writer->save('php://output');
+
+    $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role) VALUES (?, ?, ?, ?)")
+        ->execute(["Exported $type data (Excel)", $admin_name, $_SESSION['admin_id'], $_SESSION['admin_role']]);
+    exit();
+}
+
 if (isset($_GET['export']) && $_GET['format'] === 'csv') {
     $type      = $_GET['export'];
     $date_from = $_GET['date_from'] ?? '2000-01-01';
@@ -458,11 +548,10 @@ $current_page = 'export';
         <?php endif; ?>
 
         <div class="section-card">
-            <div class="section-header"><i class="fas fa-file-pdf me-2" style="color:#6D1A1A;"></i>PDF Export Template</div>
-            <div class="section-body">
+            <div class="section-header"><i class="fas fa-file-pdf me-2" style="color:#6D1A1A;"></i>PDF / Excel Export Template</div>
+            <div class="section-body">  
                 <form method="POST" enctype="multipart/form-data">
 
-                    <!-- HEADER -->
                     <label class="form-label">Header (Letterhead) <span style="font-weight:400; color:#888;">(top of exported PDF reports)</span></label>
                     <div style="margin-bottom:10px; font-size:12px; color:#888;">
                         <i class="fas fa-info-circle me-1"></i>
@@ -508,7 +597,6 @@ $current_page = 'export';
                         Leave blank to keep the current header. Uploading a new file replaces the existing one.
                     </div>
 
-                    <!-- FOOTER -->
                     <label class="form-label">Footer <span style="font-weight:400; color:#888;">(bottom of every page — repeats automatically on multi-page reports)</span></label>
                     <div style="margin-bottom:10px; font-size:12px; color:#888;">
                         <i class="fas fa-info-circle me-1"></i>
@@ -560,15 +648,14 @@ $current_page = 'export';
         </div>
 
         <div class="section-card">
-            <div class="section-header">Export to CSV</div>
+            <div class="section-header"><i class="fas fa-file-excel me-2" style="color:#27ae60;"></i>Export to Excel / PDF</div>
             <div class="section-body">
 
                 <div style="font-size:12px; color:#888; margin-bottom:20px;">
                     <i class="fas fa-info-circle me-1"></i>
-                    Select a date range and export type. Data will be downloaded as a CSV file that can be opened in Excel.
+                    Select a date range and export type. Excel downloads as a formatted <strong>.xlsx</strong> file. PDF uses the uploaded header/footer template.
                 </div>
 
-                <!-- Date Range -->
                 <div class="row g-3 mb-3">
                     <div class="col-md-4">
                         <label style="font-size:12px; font-weight:600; color:#555;">From Date</label>
@@ -580,7 +667,6 @@ $current_page = 'export';
                     </div>
                 </div>
 
-                <!-- PDF Orientation -->
                 <div class="mb-3">
                     <label style="font-size:12px; font-weight:600; color:#555; display:block; margin-bottom:6px;">PDF Page Orientation <span style="font-weight:400; color:#999;">(CSV is unaffected)</span></label>
                     <div class="btn-group" role="group">
@@ -592,7 +678,6 @@ $current_page = 'export';
                     </div>
                 </div>
 
-                <!-- PDF Paper Size -->
                 <div class="mb-4">
                     <label style="font-size:12px; font-weight:600; color:#555; display:block; margin-bottom:6px;">PDF Paper Size <span style="font-weight:400; color:#999;">(CSV is unaffected)</span></label>
                     <div class="btn-group" role="group">
@@ -602,12 +687,8 @@ $current_page = 'export';
                         <input type="radio" class="btn-check" name="pdf_paper_size" id="paperLong" value="FOLIO">
                         <label class="btn btn-outline-secondary btn-sm" for="paperLong" style="font-size:12px;"><i class="fas fa-file me-1"></i> Long (Folio, 8.5×13in)</label>
                     </div>
-                    <div style="font-size:11px; color:#999; margin-top:4px;">
-                        "Long" here matches PH bond paper (Folio, 8.5×13in) — not the same as US Legal size (8.5×14in).
-                    </div>
                 </div>
 
-                <!-- Export Options -->
                 <div class="export-card">
                     <div class="export-icon" style="background: var(--pup-red);"><i class="fas fa-file-alt"></i></div>
                     <div class="export-info">
@@ -615,8 +696,8 @@ $current_page = 'export';
                         <div class="export-desc">All requests with student info, documents requested, payment status, request status, and date/time filed.</div>
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <a href="#" onclick="doExport('requests', 'csv')" class="btn-export">
-                            <i class="fas fa-file-csv"></i> CSV
+                        <a href="#" onclick="doExport('requests', 'excel')" class="btn-export" style="background:#27ae60;">
+                            <i class="fas fa-file-excel"></i> Excel
                         </a>
                         <a href="#" onclick="doExport('requests', 'pdf')" class="btn-export" style="background:#e74c3c;">
                             <i class="fas fa-file-pdf"></i> PDF
@@ -631,8 +712,8 @@ $current_page = 'export';
                         <div class="export-desc">All registered students with student number, name, course, contact info, and registration date with full timestamp.</div>
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <a href="#" onclick="doExport('students', 'csv')" class="btn-export">
-                            <i class="fas fa-file-csv"></i> CSV
+                        <a href="#" onclick="doExport('students', 'excel')" class="btn-export" style="background:#27ae60;">
+                            <i class="fas fa-file-excel"></i> Excel
                         </a>
                         <a href="#" onclick="doExport('students', 'pdf')" class="btn-export" style="background:#e74c3c;">
                             <i class="fas fa-file-pdf"></i> PDF

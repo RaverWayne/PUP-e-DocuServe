@@ -16,13 +16,11 @@ $admin_role = $_SESSION['admin_role'];
 $success = '';
 $error   = '';
 
-// Handle Approve / Reject
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_action'])) {
     csrf_verify();
     $target_id = intval($_POST['student_id']);
     $action    = $_POST['verify_action']; // 'approve' or 'reject'
 
-    // Fetch student info for email
     $stuStmt = $pdo->prepare("SELECT first_name, email FROM users WHERE id = ?");
     $stuStmt->execute([$target_id]);
     $stu = $stuStmt->fetch();
@@ -56,13 +54,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_action'])) {
     }
 }
 
-// Filters
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'deactivate') {
+    csrf_verify();
+    $target_id  = intval($_POST['student_id']);
+    $activeReqs = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE user_id = ? AND request_status NOT IN ('Cancelled','Claimed')");
+    $activeReqs->execute([$target_id]);
+    if ($activeReqs->fetchColumn() > 0) {
+        $error = "Cannot deactivate: this student has active requests in progress.";
+    } else {
+        $pdo->prepare("UPDATE users SET verification_status = 'Rejected' WHERE id = ?")->execute([$target_id]);
+        $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target) VALUES (?, ?, ?, ?, ?)")
+            ->execute(["Deactivated student account", $admin_name, $admin_id, $admin_role, "User ID $target_id"]);
+        $success = "Student account deactivated.";
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reactivate') {
+    csrf_verify();
+    $target_id = intval($_POST['student_id']);
+    $pdo->prepare("UPDATE users SET verification_status = 'Active' WHERE id = ?")->execute([$target_id]);
+    $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target) VALUES (?, ?, ?, ?, ?)")
+        ->execute(["Reactivated student account", $admin_name, $admin_id, $admin_role, "User ID $target_id"]);
+    $success = "Student account reactivated.";
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_student') {
+    csrf_verify();
+    $target_id  = intval($_POST['student_id']);
+    $activeReqs = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE user_id = ? AND request_status NOT IN ('Cancelled','Claimed')");
+    $activeReqs->execute([$target_id]);
+    if ($activeReqs->fetchColumn() > 0) {
+        $error = "Cannot delete: this student has active requests. Cancel or complete them first.";
+    } else {
+        $pdo->prepare("UPDATE users SET verification_status = 'Deleted' WHERE id = ?")->execute([$target_id]);
+        $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target) VALUES (?, ?, ?, ?, ?)")
+            ->execute(["Deleted student account", $admin_name, $admin_id, $admin_role, "User ID $target_id"]);
+        $success = "Student account deleted.";
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_student_password') {
+    csrf_verify();
+    $target_id = intval($_POST['student_id']);
+    $new_pass  = $_POST['new_password'] ?? '';
+    if (strlen($new_pass) < 8) {
+        $error = "Password must be at least 8 characters.";
+    } elseif (!preg_match('/[A-Z]/', $new_pass)) {
+        $error = "Password must contain at least 1 uppercase letter.";
+    } elseif (!preg_match('/[a-z]/', $new_pass)) {
+        $error = "Password must contain at least 1 lowercase letter.";
+    } elseif (!preg_match('/[0-9]/', $new_pass)) {
+        $error = "Password must contain at least 1 number.";
+    } else {
+        $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([password_hash($new_pass, PASSWORD_BCRYPT), $target_id]);
+        $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target) VALUES (?, ?, ?, ?, ?)")
+            ->execute(["Reset student password", $admin_name, $admin_id, $admin_role, "User ID $target_id"]);
+        $success = "Student password reset successfully.";
+    }
+}
+
 $search       = trim($_GET['search'] ?? '');
 $filter_course = trim($_GET['course'] ?? '');
 $filter_year   = trim($_GET['year'] ?? '');
 $filter_vstatus = trim($_GET['vstatus'] ?? '');
 
-$where  = [];
+$where  = ["verification_status != 'Deleted'"];
 $params = [];
 
 if (!empty($search)) {
@@ -89,7 +145,6 @@ $stmt = $pdo->prepare("SELECT * FROM users $whereSQL ORDER BY last_name ASC");
 $stmt->execute($params);
 $students = $stmt->fetchAll();
 
-// Filter dropdown options
 $courses = $pdo->query("SELECT DISTINCT course FROM users WHERE course IS NOT NULL AND course != '' ORDER BY course")->fetchAll(PDO::FETCH_COLUMN);
 $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admitted IS NOT NULL ORDER BY year_admitted DESC")->fetchAll(PDO::FETCH_COLUMN);
 ?>
@@ -137,10 +192,17 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
         .data-table th { padding: 9px 12px; font-weight: 600; color: #555; border-bottom: 1px solid #eee; font-size: 12px; }
         .data-table td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
         .data-table tbody tr:hover { background: #fafafa; }
-        .btn-approve { background: #27ae60; color: white; border: none; padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+        .btn-approve { background: #27ae60; color: white; border: none; padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display:inline-flex; align-items:center; gap:3px; }
         .btn-approve:hover { background: #219a52; }
-        .btn-reject  { background: #e74c3c; color: white; border: none; padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+        .btn-reject  { background: #e74c3c; color: white; border: none; padding: 3px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display:inline-flex; align-items:center; gap:3px; }
         .btn-reject:hover  { background: #c0392b; }
+        .btn-sm-action { padding: 3px 10px; border-radius: 4px; font-size: 11px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: all 0.2s; }
+        .btn-disable { background: #e74c3c; color: white; }
+        .btn-disable:hover { background: #c0392b; }
+        .btn-enable  { background: #27ae60; color: white; }
+        .btn-enable:hover  { background: #219a52; }
+        .btn-reset   { background: #f39c12; color: white; }
+        .btn-reset:hover   { background: #d68910; }
         .footer-admin { background: white; border-top: 1px solid #eee; padding: 12px 24px; text-align: center; font-size: 12px; color: #aaa; }
         .vs-pending  { background: #f39c12; color: white; }
         .vs-active   { background: #27ae60; color: white; }
@@ -192,7 +254,6 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
                 <span style="font-weight:400; font-size:12px; color:#888; margin-left:6px;">(<?= count($students) ?> records)</span>
             </div>
 
-            <!-- FILTER BAR -->
             <form method="GET" action="">
                 <div class="filter-bar">
                     <input type="text" name="search" placeholder="Search name, student no., email..."
@@ -262,34 +323,45 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
                                 <span class="badge <?= $vscls ?>"><?= htmlspecialchars($vs) ?></span>
                             </td>
                             <td style="font-size:12px;"><?= date('m/d/Y', strtotime($s['created_at'])) ?></td>
-                            <td style="text-align:center; min-width:130px;">
-                                <?php if (($s['verification_status'] ?? '') === 'Pending Verification'): ?>
-                                    <div style="display:flex; gap:4px; justify-content:center;">
+                            <td style="text-align:center; min-width:200px;">
+                                <div style="display:flex; gap:3px; justify-content:center; flex-wrap:wrap;">
+                                    <button class="btn-sm-action" style="background:#3498db; color:white;"
+                                        onclick="openStudentProfile(<?= htmlspecialchars(json_encode($s)) ?>)">
+                                        <i class="fas fa-eye"></i> View
+                                    </button>
+                                    <?php if (($s['verification_status'] ?? '') === 'Pending Verification'): ?>
                                         <form method="POST" style="display:inline;">
                                             <?= csrf_field() ?>
                                             <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
                                             <input type="hidden" name="verify_action" value="approve">
-                                            <button type="submit" class="btn-approve"><i class="fas fa-check me-1"></i>Approve</button>
+                                            <button type="submit" class="btn-approve"><i class="fas fa-check"></i> Approve</button>
                                         </form>
-                                        <form method="POST" style="display:inline;">
-                                            <?= csrf_field() ?>
-                                            <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
-                                            <input type="hidden" name="verify_action" value="reject">
-                                            <button type="submit" class="btn-reject" onclick="return confirm('Reject this student account?')">
-                                                <i class="fas fa-times me-1"></i>Reject
-                                            </button>
-                                        </form>
-                                    </div>
-                                <?php elseif (($s['verification_status'] ?? '') === 'Rejected'): ?>
-                                    <form method="POST" style="display:inline;">
-                                        <?= csrf_field() ?>
-                                        <input type="hidden" name="student_id" value="<?= $s['id'] ?>">
-                                        <input type="hidden" name="verify_action" value="approve">
-                                        <button type="submit" class="btn-approve"><i class="fas fa-undo me-1"></i>Re-approve</button>
-                                    </form>
-                                <?php else: ?>
-                                    <span style="color:#aaa; font-size:11px;">—</span>
-                                <?php endif; ?>
+                                        <button class="btn-sm-action btn-reject"
+                                            onclick="openStudentConfirm(<?= $s['id'] ?>, 'reject', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                            <i class="fas fa-times"></i> Reject
+                                        </button>
+                                    <?php elseif (($s['verification_status'] ?? '') === 'Active'): ?>
+                                        <button class="btn-sm-action btn-disable"
+                                            onclick="openStudentConfirm(<?= $s['id'] ?>, 'deactivate', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                            <i class="fas fa-ban"></i> Deactivate
+                                        </button>
+                                        <button class="btn-sm-action btn-reset"
+                                            onclick="openStudentReset(<?= $s['id'] ?>, <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                            <i class="fas fa-key"></i> Reset
+                                        </button>
+                                    <?php elseif (($s['verification_status'] ?? '') === 'Rejected'): ?>
+                                        <button class="btn-sm-action btn-enable"
+                                            onclick="openStudentConfirm(<?= $s['id'] ?>, 'reactivate', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                            <i class="fas fa-undo"></i> Reactivate
+                                        </button>
+                                    <?php endif; ?>
+                                    <?php if (($s['verification_status'] ?? '') !== 'Pending Verification'): ?>
+                                    <button class="btn-sm-action" style="background:#8B0000; color:white;"
+                                        onclick="openStudentConfirm(<?= $s['id'] ?>, 'delete_student', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -306,5 +378,193 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<div class="modal fade" id="studentProfileModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:var(--pup-red); color:white;">
+                <h6 class="modal-title"><i class="fas fa-user me-2"></i>Student Profile</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter:invert(1);"></button>
+            </div>
+            <div class="modal-body" style="font-size:13px; padding:0;">
+                <div style="display:flex; gap:20px; padding:20px; border-bottom:1px solid #eee; align-items:flex-start;">
+                    <div style="flex-shrink:0; text-align:center; width:90px;">
+                        <div id="spPhotoWrap" style="width:90px; height:100px; border:1px solid #ddd; border-radius:4px; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#f5f5f5; margin-bottom:6px;">
+                            <i class="fas fa-user-circle" style="font-size:50px; color:#ccc;"></i>
+                        </div>
+                        <div id="spStatusBadge"></div>
+                    </div>
+                    <div style="flex:1;">
+                        <div style="font-size:15px; font-weight:700; color:#333;" id="spName"></div>
+                        <div style="font-size:12px; color:#888; margin-top:2px;" id="spStudentNum"></div>
+                        <div style="font-size:13px; color:#555; margin-top:6px;" id="spCourse"></div>
+                        <div style="font-size:12px; color:#888; margin-top:2px;" id="spEmail"></div>
+                        <div style="font-size:12px; color:#888;" id="spMobile"></div>
+                    </div>
+                </div>
+                <div style="padding:16px 20px;">
+                    <table style="width:100%; font-size:13px; border-collapse:collapse;">
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555; width:180px;">Date of Birth</td><td id="spDob"></td></tr>
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555;">Address</td><td id="spAddress"></td></tr>
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555;">Year Admitted</td><td id="spYear"></td></tr>
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555;">Admitted As</td><td id="spAdmitted"></td></tr>
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555;">Program Status</td><td id="spProgram"></td></tr>
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555;">High School</td><td id="spHS"></td></tr>
+                        <tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:7px 0; font-weight:600; color:#555;">Elementary</td><td id="spElem"></td></tr>
+                        <tr><td style="padding:7px 0; font-weight:600; color:#555;">Date Registered</td><td id="spReg"></td></tr>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="studentConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" id="studentConfirmHeader" style="background:#e74c3c; color:white;">
+                <h6 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Confirm Action</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter:invert(1);"></button>
+            </div>
+            <div class="modal-body" style="font-size:13px;">
+                <p id="studentConfirmMsg" class="mb-0"></p>
+            </div>
+            <form method="POST" id="studentConfirmForm">
+                <?= csrf_field() ?>
+                <input type="hidden" name="student_id"   id="scStudentId">
+                <input type="hidden" name="action"        id="scAction">
+                <input type="hidden" name="verify_action" id="scVerifyAction">
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" id="scSubmitBtn" class="btn btn-sm" style="background:#e74c3c; color:white; border:none;">Confirm</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="studentResetModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" style="background:var(--pup-red); color:white;">
+                <h6 class="modal-title"><i class="fas fa-key me-2"></i>Reset Student Password</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter:invert(1);"></button>
+            </div>
+            <form method="POST">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="reset_student_password">
+                <div class="modal-body" style="font-size:13px;">
+                    <input type="hidden" name="student_id" id="srStudentId">
+                    <p class="mb-3">Resetting password for: <strong id="srStudentName"></strong></p>
+                    <label style="font-size:12px; font-weight:600; color:#555; margin-bottom:3px; display:block;">New Password <span style="color:var(--pup-red);">*</span></label>
+                    <div style="position:relative;">
+                        <input type="password" name="new_password" id="srPass" class="form-control" placeholder="New Password" required autocomplete="new-password">
+                        <i class="fas fa-eye" id="srToggle" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:#aaa;font-size:13px;"></i>
+                    </div>
+                    <ul style="list-style:none; padding:8px 0 0; margin:0; font-size:12px;">
+                        <li id="sr-len"><i class="fas fa-circle-xmark me-1" style="color:#aaa;"></i><span style="color:#aaa;">At least 8 characters</span></li>
+                        <li id="sr-upper"><i class="fas fa-circle-xmark me-1" style="color:#aaa;"></i><span style="color:#aaa;">At least 1 uppercase letter</span></li>
+                        <li id="sr-lower"><i class="fas fa-circle-xmark me-1" style="color:#aaa;"></i><span style="color:#aaa;">At least 1 lowercase letter</span></li>
+                        <li id="sr-num"><i class="fas fa-circle-xmark me-1" style="color:#aaa;"></i><span style="color:#aaa;">At least 1 number</span></li>
+                    </ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm" style="background:var(--pup-red); color:white; border:none;">
+                        <i class="fas fa-save me-1"></i> Reset Password
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openStudentProfile(s) {
+    const photoWrap = document.getElementById('spPhotoWrap');
+    photoWrap.innerHTML = '<i class="fas fa-user-circle" style="font-size:50px; color:#ccc;"></i>';
+    if (s.profile_photo) {
+        fetch('../includes/get_profile_url.php?user_id=' + s.id)
+            .then(r => r.json())
+            .then(data => {
+                if (data.url) photoWrap.innerHTML = '<img src="' + data.url + '" style="width:100%;height:100%;object-fit:cover;" alt="Profile">';
+            }).catch(() => {});
+    }
+    const vsMap = { 'Active':'success','Rejected':'danger','Pending Verification':'warning text-dark','Deleted':'secondary' };
+    document.getElementById('spStatusBadge').innerHTML = '<span class="badge bg-' + (vsMap[s.verification_status] || 'secondary') + '">' + (s.verification_status || '') + '</span>';
+    document.getElementById('spName').textContent       = (s.last_name + ', ' + s.first_name + (s.middle_name && s.middle_name.toUpperCase() !== 'N/A' ? ' ' + s.middle_name : '')).toUpperCase();
+    document.getElementById('spStudentNum').textContent = s.student_number || 'N/A';
+    document.getElementById('spCourse').textContent     = s.course || '—';
+    document.getElementById('spEmail').textContent      = s.email || '—';
+    document.getElementById('spMobile').textContent     = s.mobile_number || '—';
+    document.getElementById('spDob').textContent        = s.date_of_birth || '—';
+    document.getElementById('spAddress').textContent    = s.address || '—';
+    document.getElementById('spYear').textContent       = s.year_admitted || '—';
+    document.getElementById('spAdmitted').textContent   = s.admitted_as || '—';
+    document.getElementById('spProgram').textContent    = s.program_status || '—';
+    document.getElementById('spHS').textContent         = s.high_school ? (s.high_school + (s.hs_year_grad ? ' (' + s.hs_year_grad + ')' : '')) : '—';
+    document.getElementById('spElem').textContent       = s.elementary ? (s.elementary + (s.elem_year_grad ? ' (' + s.elem_year_grad + ')' : '')) : '—';
+    document.getElementById('spReg').textContent        = s.created_at ? s.created_at.substring(0, 10) : '—';
+    new bootstrap.Modal(document.getElementById('studentProfileModal')).show();
+}
+
+function openStudentConfirm(id, action, name) {
+    const msgs = {
+        reject:         'Reject the account of <strong>' + name + '</strong>? The student will be notified.',
+        deactivate:     'Deactivate the account of <strong>' + name + '</strong>? They will not be able to log in until reactivated.',
+        reactivate:     'Reactivate the account of <strong>' + name + '</strong>?',
+        delete_student: 'Permanently remove the account of <strong>' + name + '</strong>? Their request history is preserved but they will no longer be able to log in. This cannot be undone.',
+    };
+    const colors = { reject:'#e74c3c', deactivate:'#e74c3c', reactivate:'#27ae60', delete_student:'#8B0000' };
+    document.getElementById('studentConfirmMsg').innerHTML  = msgs[action] || 'Are you sure?';
+    document.getElementById('studentConfirmHeader').style.background = colors[action] || '#e74c3c';
+    document.getElementById('scStudentId').value            = id;
+    document.getElementById('scSubmitBtn').style.background = colors[action] || '#e74c3c';
+    if (action === 'reject') {
+        document.getElementById('scVerifyAction').value = 'reject';
+        document.getElementById('scAction').value       = '';
+    } else if (action === 'reactivate') {
+        document.getElementById('scVerifyAction').value = 'approve';
+        document.getElementById('scAction').value       = '';
+    } else {
+        document.getElementById('scVerifyAction').value = '';
+        document.getElementById('scAction').value       = action;
+    }
+    new bootstrap.Modal(document.getElementById('studentConfirmModal')).show();
+}
+
+function openStudentReset(id, name) {
+    document.getElementById('srStudentId').value         = id;
+    document.getElementById('srStudentName').textContent = name;
+    document.getElementById('srPass').value              = '';
+    checkSrComplexity();
+    new bootstrap.Modal(document.getElementById('studentResetModal')).show();
+}
+
+document.getElementById('srToggle')?.addEventListener('click', function() {
+    const inp = document.getElementById('srPass');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+    this.classList.toggle('fa-eye'); this.classList.toggle('fa-eye-slash');
+});
+
+function setSrReq(id, ok) {
+    const el = document.getElementById(id); if (!el) return;
+    const ic = el.querySelector('i'), sp = el.querySelector('span');
+    el.style.color = ok ? '#27ae60' : '#aaa';
+    if (ic) { ic.className = (ok ? 'fas fa-circle-check' : 'fas fa-circle-xmark') + ' me-1'; ic.style.color = ok ? '#27ae60' : '#aaa'; }
+    if (sp) sp.style.color = ok ? '#27ae60' : '#aaa';
+}
+function checkSrComplexity() {
+    const v = document.getElementById('srPass')?.value || '';
+    setSrReq('sr-len',   v.length >= 8);
+    setSrReq('sr-upper', /[A-Z]/.test(v));
+    setSrReq('sr-lower', /[a-z]/.test(v));
+    setSrReq('sr-num',   /[0-9]/.test(v));
+}
+document.getElementById('srPass')?.addEventListener('input', checkSrComplexity);
+</script>
 </body>
 </html>

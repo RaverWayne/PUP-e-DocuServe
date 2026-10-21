@@ -3,7 +3,6 @@ session_start();
 require_once '../config/db.php';
 require_once 'csrf.php';
 
-// Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
     if (time() - $_SESSION['last_activity'] > 600) {
         session_unset();
@@ -30,7 +29,6 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
-    // Collect inputs
     $last_name      = trim($_POST['last_name'] ?? '');
     $first_name     = trim($_POST['first_name'] ?? '');
     $middle_name    = trim($_POST['middle_name'] ?? '');
@@ -40,7 +38,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $address        = trim($_POST['address'] ?? '');
     $mobile_number  = trim($_POST['mobile_number'] ?? '');
 
-    // Educational
     $course         = trim($_POST['course'] ?? '');
     $year_admitted  = trim($_POST['year_admitted'] ?? '');
     $admitted_as    = trim($_POST['admitted_as'] ?? '');
@@ -50,7 +47,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $elementary     = trim($_POST['elementary'] ?? '');
     $elem_year_grad = trim($_POST['elem_year_grad'] ?? '');
 
-    // Resolve suffix
     $suffix_final = '';
     if (!empty($suffix_custom)) {
         $suffix_final = $suffix_custom;
@@ -58,22 +54,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $suffix_final = $suffix_select;
     }
 
-    // Validations — mirror registration rules
-
     if (empty($last_name))  $errors[] = "Last name is required.";
     if (empty($first_name)) $errors[] = "First name is required.";
 
-    // Middle name
     if (empty($middle_name)) {
         $errors[] = "Middle name is required. Enter \"N/A\" if you have no middle name.";
     }
 
-    // Date of birth
     if (empty($date_of_birth)) {
         $errors[] = "Date of birth is required.";
     }
 
-    // Mobile number
     if (empty($mobile_number)) {
         $errors[] = "Mobile number is required.";
     } elseif (strtolower($mobile_number) === 'n/a') {
@@ -84,10 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($address))     $errors[] = "Permanent address is required.";
     if (empty($course))      $errors[] = "Course/Program is required.";
-    if (empty($high_school)) $errors[] = "High school name is required.";
-    if (empty($elementary))  $errors[] = "Elementary school name is required.";
 
-    // Update if valid
     if (empty($errors)) {
         $pdo->prepare("
             UPDATE users SET
@@ -109,7 +97,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user_id
         ]);
 
-        // Refresh user data
         $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
         $stmt->execute([$user_id]);
         $user = $stmt->fetch();
@@ -135,7 +122,6 @@ $courses = [
 
 $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
-// Determine current suffix state for the form
 $db_suffix        = $user['suffix'] ?? '';
 $suffix_in_list   = in_array($db_suffix, $suffix_options);
 $suffix_sel_val   = '';
@@ -148,7 +134,6 @@ if (empty($db_suffix)) {
     $suffix_sel_val  = 'other';
     $suffix_cust_val = $db_suffix;
 }
-// On POST re-render override with posted values
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
     $suffix_sel_val  = $_POST['suffix_select'] ?? 'none';
     $suffix_cust_val = $_POST['suffix_custom'] ?? '';
@@ -168,7 +153,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
 
         body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; margin: 0; }
 
-        /* NAVBAR */
         .navbar-pup { background: var(--pup-red); padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 999; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
         .navbar-pup .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
         .navbar-pup .brand img { height: 38px; width: 38px; object-fit: contain; }
@@ -182,7 +166,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
         .dropdown-menu-custom a.text-danger { color: #dc3545; }
         .dropdown-menu-custom .divider { border-top: 1px solid #eee; margin: 4px 0; }
 
-        /* TABS */
         .tabs-bar { background: white; border-bottom: 1px solid #ddd; padding: 0 20px; }
         .tabs-bar .nav-tabs { border: none; }
         .tabs-bar .nav-link { color: #666; font-size: 13px; padding: 10px 16px; border: none; border-bottom: 3px solid transparent; border-radius: 0; }
@@ -190,7 +173,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
         .tabs-bar .nav-link.active { color: var(--pup-red); border-bottom-color: var(--pup-red); font-weight: 600; background: none; }
         .tabs-bar .nav-link i { margin-right: 5px; }
 
-        /* CONTENT */
         .content-wrapper { max-width: 900px; margin: 24px auto; padding: 0 16px; }
 
         .section-card { background: white; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 20px; overflow: hidden; }
@@ -218,7 +200,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="navbar-pup">
     <a href="index.php" class="brand">
         <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
@@ -239,7 +220,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
     </div>
 </nav>
 
-<!-- TABS -->
 <div class="tabs-bar">
     <ul class="nav nav-tabs">
         <li class="nav-item"><a class="nav-link active" href="index.php"><i class="fas fa-user"></i> Profile</a></li>
@@ -249,7 +229,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
     </ul>
 </div>
 
-<!-- CONTENT -->
 <div class="content-wrapper">
 
     <?php if ($success): ?>
@@ -273,7 +252,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
     <form method="POST">
         <?= csrf_field() ?>
 
-        <!-- PERSONAL INFORMATION -->
         <div class="section-card">
             <div class="section-header"><i class="fas fa-user me-2" style="color:var(--pup-red);"></i>Personal Information</div>
             <div class="section-body">
@@ -290,7 +268,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
                             value="<?= htmlspecialchars($_POST['first_name'] ?? $user['first_name']) ?>" required>
                     </div>
 
-                    <!-- Middle Name — required; N/A accepted -->
                     <div class="col-md-4">
                         <label class="form-label">Middle Name <span class="req">*</span></label>
                         <input type="text" name="middle_name" class="form-control"
@@ -299,7 +276,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
                         <div class="field-hint">If you have no middle name, type <strong>N/A</strong>.</div>
                     </div>
 
-                    <!-- Suffix — dropdown + custom fallback -->
                     <div class="col-md-4">
                         <label class="form-label">Suffix <span style="color:#aaa; font-weight:400;">(optional)</span></label>
                         <div class="suffix-wrapper">
@@ -318,14 +294,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
                         </div>
                     </div>
 
-                    <!-- Date of Birth — required -->
                     <div class="col-md-4">
                         <label class="form-label">Date of Birth <span class="req">*</span></label>
                         <input type="date" name="date_of_birth" class="form-control"
                             value="<?= htmlspecialchars($_POST['date_of_birth'] ?? $user['date_of_birth'] ?? '') ?>">
                     </div>
 
-                    <!-- Mobile Number — required, 11 digits -->
                     <div class="col-md-4">
                         <label class="form-label">Mobile Number <span class="req">*</span></label>
                         <input type="text" name="mobile_number" class="form-control"
@@ -354,7 +328,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
             </div>
         </div>
 
-        <!-- EDUCATIONAL INFORMATION -->
         <div class="section-card">
             <div class="section-header"><i class="fas fa-graduation-cap me-2" style="color:var(--pup-red);"></i>Educational Information</div>
             <div class="section-body">
@@ -415,7 +388,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
                 <div class="row g-3">
 
                     <div class="col-md-6">
-                        <label class="form-label">High School Graduated From <span class="req">*</span></label>
+                        <label class="form-label">High School Graduated From</label>
                         <input type="text" name="high_school" class="form-control"
                             placeholder="Senior High School Name"
                             value="<?= htmlspecialchars($_POST['high_school'] ?? $user['high_school'] ?? '') ?>">
@@ -428,7 +401,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label">Elementary School Graduated From <span class="req">*</span></label>
+                        <label class="form-label">Elementary School Graduated From</label>
                         <input type="text" name="elementary" class="form-control"
                             placeholder="Elementary School Name"
                             value="<?= htmlspecialchars($_POST['elementary'] ?? $user['elementary'] ?? '') ?>">
@@ -445,7 +418,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
             </div>
         </div>
 
-        <!-- ACTION BUTTONS -->
         <div style="display:flex; gap:10px; margin-bottom:40px;">
             <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save Changes</button>
             <a href="index.php" class="btn-cancel"><i class="fas fa-times me-2"></i>Cancel</a>
@@ -454,7 +426,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
     </form>
 </div>
 
-<!-- FOOTER -->
 <div style="background:#f8f8f8; border-top:1px solid #ddd; padding:12px 20px; text-align:center; font-size:12px; color:#666;">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
     <a href="#" style="color:var(--pup-red); text-decoration:none;">Terms of Use</a> |
@@ -463,7 +434,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Suffix custom input toggle
     const suffixSelect = document.getElementById('suffixSelect');
     const suffixCustom = document.getElementById('suffixCustom');
 
@@ -477,12 +447,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($errors)) {
         }
     });
 
-    // Mobile number: digits only
     document.getElementById('mobileInput').addEventListener('input', function () {
         this.value = this.value.replace(/\D/g, '').slice(0, 11);
     });
 
-    // Navbar dropdown
     function toggleDropdown() {
         const d = document.getElementById('navDropdown');
         d.style.display = d.style.display === 'none' ? 'block' : 'none';

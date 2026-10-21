@@ -4,6 +4,7 @@ require_once '../config/db.php';
 require_once "../includes/session_timeout.php";
 require_once '../includes/mailer.php';
 require_once '../includes/release_date.php';
+require_once '../includes/slip_url.php';
 require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
@@ -15,24 +16,41 @@ $admin_name = $_SESSION['admin_name'];
 $success = '';
 $error   = '';
 
-// Handle request update
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // CSRF verification
-    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
-        http_response_code(403);
-        die('Security check failed. Please go back, refresh the page, and try again.');
-    }
+// Consume flash error from redirect (Decision Matrix validation)
+if (!empty($_SESSION['flash_error'])) {
+    $error = $_SESSION['flash_error'];
+    unset($_SESSION['flash_error']);
+}
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $request_id           = intval($_POST['request_id'] ?? 0);
     $request_status       = $_POST['request_status'] ?? '';
     $payment_status       = $_POST['payment_status'] ?? '';
     $tentative_release    = $_POST['tentative_release_date'] ?? '';
     $admin_notes          = trim($_POST['admin_notes'] ?? '');
     $custom_requirements  = trim($_POST['custom_requirements'] ?? '');
+    $admin_name           = $_SESSION['admin_name'] ?? 'Unknown Admin';
 
     $date_verified = ($payment_status === 'Paid') ? date('Y-m-d') : null;
 
-    // Old status
+    // Backend invariant validation (Decision Matrix §7)
+    $invalid_payment_for_processing = ($payment_status !== 'Paid' && in_array($request_status, ['Processing', 'Ready for Pickup', 'Claimed']));
+    if ($invalid_payment_for_processing) {
+        $_SESSION['flash_error'] = "Invalid state transition: Requests cannot be set to '$request_status' while Payment Status is '$payment_status'. Payment must be verified first.";
+        header("Location: manage_requests.php");
+        exit();
+    }
+    if ($request_status === 'Claimed' && $payment_status !== 'Paid') {
+        $_SESSION['flash_error'] = "Cannot mark request as Claimed without verified payment.";
+        header("Location: manage_requests.php");
+        exit();
+    }
+    if ($request_status === 'Cancelled' && empty($admin_notes)) {
+        $_SESSION['flash_error'] = "A cancellation reason is required. Please state the reason in Admin Notes.";
+        header("Location: manage_requests.php");
+        exit();
+    }
+
     $old = $pdo->prepare("SELECT request_status, u.first_name, u.email,
                                   r.control_number, r.tentative_release_date,
                                   GROUP_CONCAT(d.document_name SEPARATOR ', ') AS documents
@@ -48,25 +66,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         UPDATE requests
         SET request_status = ?, payment_status = ?,
             tentative_release_date = ?,
-            admin_notes = ?, date_verified = ?,
+            admin_notes = ?, admin_name = ?, date_verified = ?,
             custom_requirements = ?
         WHERE id = ?
     ");
     $stmt->execute([
         $request_status, $payment_status,
         $tentative_release ?: null,
-        $admin_notes, $date_verified,
+        $admin_notes, $admin_name, $date_verified,
         $custom_requirements ?: null,
         $request_id
     ]);
 
-    // Log request history for SLA compliance (Wave 3)
-    if ($oldReq && $oldReq['request_status'] !== $request_status) {
-        $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
-            ->execute([$request_id, $oldReq['request_status'], $request_status, $admin_name, $admin_notes ?: 'Status updated by admin']);
-    }
-
-    // Notify student on status change
     if ($oldReq && $oldReq['request_status'] !== $request_status && !empty($oldReq['email'])) {
         $html = emailRequestStatusUpdate(
             $oldReq['first_name'],
@@ -85,7 +96,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $success = "Request updated successfully.";
 }
 
-// Filter
 $filter = $_GET['filter'] ?? 'All';
 $search = trim($_GET['search'] ?? '');
 
@@ -107,6 +117,7 @@ $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 $requests = $pdo->prepare("
     SELECT r.*, u.first_name, u.last_name, u.course, u.student_number,
+           u.email, u.mobile_number,
            GROUP_CONCAT(d.document_name SEPARATOR ', ') as documents
     FROM requests r
     LEFT JOIN users u ON r.user_id = u.id
@@ -119,7 +130,6 @@ $requests = $pdo->prepare("
 $requests->execute($params);
 $requests = $requests->fetchAll();
 
-// Fetch single request for manage modal
 $manage_req   = null;
 $manage_items = [];
 if (isset($_GET['id'])) {
@@ -166,8 +176,6 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
         .main-content { margin-left: 220px; min-height: 100vh; display: flex; flex-direction: column; }
         .topbar { background: white; border-bottom: 1px solid #ddd; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 99; }
         .topbar-title { font-size: 15px; font-weight: 700; color: #333; }
-        .topbar-user { font-size: 12px; color: #666; }
-        .topbar-user strong { color: var(--pup-red); }
         .page-content { padding: 24px; flex: 1; }
 
         .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
@@ -214,7 +222,6 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
 </head>
 <body>
 
-<!-- SIDEBAR -->
 <div class="sidebar">
     <div class="sidebar-brand">
         <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
@@ -232,12 +239,11 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
         <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>
     <div class="sidebar-footer">
-        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
-        <div style="font-size:11px; color:#888;">Biñan Campus</div>
+        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
+        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
     </div>
 </div>
 
-<!-- MAIN -->
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-file-alt me-2" style="color:var(--pup-red);"></i>Manage Requests</div>
@@ -251,8 +257,12 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                 <i class="fas fa-check-circle me-1"></i> <?= htmlspecialchars($success) ?>
             </div>
         <?php endif; ?>
+        <?php if ($error): ?>
+            <div class="alert alert-danger py-2 mb-3" style="font-size:13px;">
+                <i class="fas fa-exclamation-circle me-1"></i> <?= htmlspecialchars($error) ?>
+            </div>
+        <?php endif; ?>
 
-        <!-- FILTERS -->
         <form method="GET" action="">
             <div class="filter-bar">
                 <?php foreach ($filters as $f): ?>
@@ -267,7 +277,6 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
             </div>
         </form>
 
-        <!-- TABLE -->
         <div class="section-card">
             <div class="section-header">
                 <i class="fas fa-list me-2" style="color:var(--pup-red);"></i>
@@ -284,8 +293,8 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                             <th>Purpose</th>
                             <th>Payment</th>
                             <th>Status</th>
-                            <th>SLA Status</th>
                             <th>Date Filed</th>
+                            <th style="text-align:center;">SLA</th>
                             <th style="text-align:center;">Action</th>
                         </tr>
                     </thead>
@@ -323,24 +332,45 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                                 ?>
                                 <span class="badge bg-<?= $sc ?>"><?= $r['request_status'] ?></span>
                             </td>
-                            <td>
+                            <td><?= date('m/d/Y', strtotime($r['date_filed'])) ?></td>
+                            <td style="text-align:center; min-width:115px;">
                                 <?php
-                                $working_days = calculateWorkingDays($r['date_filed']);
-                                if ($r['request_status'] === 'Claimed') {
-                                    echo '<span class="badge bg-secondary" title="Completed"><i class="fas fa-check-circle me-1"></i> Completed (' . $working_days . 'd)</span>';
-                                } elseif ($r['request_status'] === 'Cancelled') {
-                                    echo '<span class="badge bg-secondary">Cancelled</span>';
-                                } elseif ($working_days <= 5) {
-                                    echo '<span class="badge bg-success" title="' . $working_days . ' working days elapsed (SLA: 5 days)"><i class="fas fa-clock me-1"></i> On Track (' . $working_days . 'd)</span>';
+                                $trd    = $r['tentative_release_date'] ?? null;
+                                $status = $r['request_status'];
+                                if ($status === 'Cancelled') {
+                                    echo '<span class="badge bg-secondary">N/A</span>';
+                                } elseif (in_array($status, ['Claimed', 'Ready for Pickup'])) {
+                                    $completed = $r['date_released'] ?? $r['updated_at'] ?? null;
+                                    if ($trd && $completed) {
+                                        $on_time = date('Y-m-d', strtotime($completed)) <= $trd;
+                                        echo $on_time
+                                            ? '<span class="badge bg-success"><i class="fas fa-check me-1"></i>On Time</span>'
+                                            : '<span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Late</span>';
+                                    } else {
+                                        echo '<span class="badge bg-dark">Completed</span>';
+                                    }
+                                } elseif ($trd) {
+                                    $today = date('Y-m-d');
+                                    if ($trd < $today) {
+                                        $days_late = date_diff(date_create($trd), date_create($today))->days;
+                                        echo '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i>Overdue (' . $days_late . 'd)</span>';
+                                    } elseif ($trd === $today) {
+                                        echo '<span class="badge bg-warning text-dark"><i class="fas fa-clock me-1"></i>Due Today</span>';
+                                    } else {
+                                        $days_left = date_diff(date_create($today), date_create($trd))->days;
+                                        echo '<span class="badge bg-info"><i class="fas fa-check me-1"></i>On Track (' . $days_left . 'd)</span>';
+                                    }
                                 } else {
-                                    echo '<span class="badge bg-danger" title="' . $working_days . ' working days elapsed (SLA: 5 days)"><i class="fas fa-exclamation-triangle me-1"></i> Delayed (' . $working_days . 'd)</span>';
+                                    echo '<span style="color:#aaa;">—</span>';
+                                }
+                                if ($trd) {
+                                    echo '<div style="font-size:10px; color:#888; margin-top:2px;">Target: ' . date('m/d/Y', strtotime($trd)) . '</div>';
                                 }
                                 ?>
                             </td>
-                            <td><?= date('m/d/Y', strtotime($r['date_filed'])) ?></td>
                             <td style="text-align:center;">
                                 <button class="btn-sm-action btn-manage"
-                                    onclick="openManage(<?= htmlspecialchars(json_encode(array_merge($r, ['working_days' => $working_days]))) ?>, <?= htmlspecialchars(json_encode([])) ?>)">
+                                    onclick="openManage(<?= htmlspecialchars(json_encode($r)) ?>, <?= htmlspecialchars(json_encode([])) ?>)">
                                     <i class="fas fa-edit"></i> Manage
                                 </button>
                             </td>
@@ -358,7 +388,6 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
     </div>
 </div>
 
-<!-- MANAGE MODAL -->
 <div class="modal fade" id="manageModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content">
@@ -367,11 +396,9 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="">
-                <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="mgmt_id">
 
-                    <!-- Student Info -->
                     <div class="mb-3 p-3" style="background:#fafafa; border-radius:6px; border:1px solid #eee;">
                         <div style="font-weight:700; margin-bottom:8px; color:var(--pup-red);">Student Information</div>
                         <div class="row g-2">
@@ -384,24 +411,20 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                                 <div class="detail-row"><div class="detail-label">Mobile:</div><div id="mgmt_mobile"></div></div>
                                 <div class="detail-row"><div class="detail-label">Course:</div><div id="mgmt_course"></div></div>
                                 <div class="detail-row"><div class="detail-label">Purpose:</div><div id="mgmt_purpose"></div></div>
-                                <div class="detail-row"><div class="detail-label">SLA Turnaround:</div><div id="mgmt_sla"></div></div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Documents -->
                     <div class="mb-3">
                         <div style="font-weight:700; margin-bottom:6px;">Requested Documents</div>
                         <div id="mgmt_docs" style="font-size:13px; color:#555;"></div>
                     </div>
 
-                    <!-- Bank Slip -->
                     <div class="mb-3" id="slipRow">
                         <div style="font-weight:700; margin-bottom:6px;">Bank Slip</div>
                         <div id="mgmt_slip"></div>
                     </div>
 
-                    <!-- Admin Controls -->
                     <div class="row g-3 mt-1">
                         <div class="col-md-6">
                             <label class="form-label">Payment Status</label>
@@ -474,28 +497,12 @@ function openManage(req) {
     document.getElementById('mgmt_mobile').textContent = req.mobile_number || 'N/A';
     document.getElementById('mgmt_course').textContent = req.course || 'N/A';
     document.getElementById('mgmt_purpose').textContent = req.purpose || 'N/A';
-
-    // SLA turnaround display
-    const days = req.working_days || 0;
-    let slaHtml = '';
-    if (req.request_status === 'Claimed') {
-        slaHtml = `<span class="badge bg-secondary"><i class="fas fa-check-circle me-1"></i> Completed (${days} working days)</span>`;
-    } else if (req.request_status === 'Cancelled') {
-        slaHtml = `<span class="badge bg-secondary">Cancelled</span>`;
-    } else if (days <= 5) {
-        slaHtml = `<span class="badge bg-success"><i class="fas fa-clock me-1"></i> On Track (${days} / 5 working days)</span>`;
-    } else {
-        slaHtml = `<span class="badge bg-danger"><i class="fas fa-exclamation-triangle me-1"></i> Delayed (${days} working days — exceeds 5d SLA)</span>`;
-    }
-    document.getElementById('mgmt_sla').innerHTML = slaHtml;
-
     document.getElementById('mgmt_docs').textContent   = req.documents || 'N/A';
     document.getElementById('mgmt_total').value        = '₱ ' + parseFloat(req.total_amount).toFixed(2);
     document.getElementById('mgmt_notes').value        = req.admin_notes || '';
     document.getElementById('mgmt_requirements').value = req.custom_requirements || '';
     document.getElementById('mgmt_release').value = req.tentative_release_date || '';
 
-    // Release date hint
     const hint = req.tentative_release_date
         ? new Date(req.tentative_release_date).toLocaleDateString('en-PH', {year:'numeric',month:'long',day:'numeric'})
         : '—';
@@ -504,19 +511,136 @@ function openManage(req) {
     document.getElementById('mgmt_payment').value = req.payment_status;
     document.getElementById('mgmt_status').value  = req.request_status;
 
-    // Bank slip
+    syncStatusConstraints();
+
     let slipHTML = '';
     if (req.bank_slip_path === 'walkin') {
         slipHTML = '<span style="color:#e67e22;"><i class="fas fa-walking me-1"></i>Student chose to walk in with physical slip</span>';
     } else if (req.bank_slip_path) {
-        slipHTML = `<a href="../assets/uploads/${req.bank_slip_path}" target="_blank" class="btn btn-sm btn-outline-secondary" style="font-size:12px;"><i class="fas fa-eye me-1"></i>View Uploaded Slip</a>`;
+        slipHTML = '<span id="adminSlipLink"><i class="fas fa-spinner fa-spin me-1"></i>Loading slip link…</span>';
     } else {
         slipHTML = '<span style="color:#aaa;">No slip uploaded yet.</span>';
     }
     document.getElementById('mgmt_slip').innerHTML = slipHTML;
 
     new bootstrap.Modal(document.getElementById('manageModal')).show();
+
+    if (req.bank_slip_path && req.bank_slip_path !== 'walkin') {
+        fetch('../includes/get_slip_url.php?request_id=' + req.id)
+            .then(r => r.json())
+            .then(data => {
+                const el = document.getElementById('adminSlipLink');
+                if (el) {
+                    if (data.url) {
+                        el.outerHTML = `<a href="${data.url}" target="_blank" class="btn btn-sm btn-outline-secondary" style="font-size:12px;"><i class="fas fa-eye me-1"></i>View Uploaded Slip</a>`;
+                    } else {
+                        el.outerHTML = '<span style="color:#aaa;">Slip unavailable</span>';
+                    }
+                }
+            })
+            .catch(() => {
+                const el = document.getElementById('adminSlipLink');
+                if (el) el.outerHTML = '<span style="color:#aaa;">Could not load slip</span>';
+            });
+    }
 }
+
+// Decision Matrix frontend constraints
+function syncStatusConstraints() {
+    const payment = document.getElementById('mgmt_payment');
+    const status  = document.getElementById('mgmt_status');
+    const paid = payment.value === 'Paid';
+
+    // Disable options that require payment when not paid
+    const blockedByUnpaid = ['Processing', 'Ready for Pickup', 'Claimed'];
+    Array.from(status.options).forEach(opt => {
+        opt.disabled = !paid && blockedByUnpaid.includes(opt.value);
+    });
+
+    // If current selection is now invalid, fall back to Pending
+    if (status.options[status.selectedIndex]?.disabled) {
+        status.value = 'Pending';
+    }
+
+    // Auto-advance to Processing when payment flips to Paid and status is still Pending
+    if (paid && status.value === 'Pending') {
+        status.value = 'Processing';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const payment = document.getElementById('mgmt_payment');
+    const status  = document.getElementById('mgmt_status');
+
+    payment.addEventListener('change', syncStatusConstraints);
+
+    // When Claimed is selected, lock payment to Paid
+    status.addEventListener('change', function () {
+        if (this.value === 'Claimed') {
+            payment.value = 'Paid';
+            syncStatusConstraints();
+        }
+    });
+});
+</script>
+
+<div class="modal fade" id="saveConfirmModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" style="background:var(--pup-red); color:white;">
+                <h6 class="modal-title"><i class="fas fa-save me-2"></i>Confirm Update</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter:invert(1);"></button>
+            </div>
+            <div class="modal-body" style="font-size:13px;">
+                <p class="mb-2">Save changes to request <strong id="scControlNum"></strong>?</p>
+                <table style="width:100%; font-size:12px; border-collapse:collapse;">
+                    <tr style="border-bottom:1px solid #f0f0f0;">
+                        <td style="padding:6px 0; font-weight:600; color:#555; width:150px;">Request Status</td>
+                        <td id="scReqStatus"></td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 0; font-weight:600; color:#555;">Payment Status</td>
+                        <td id="scPayStatus"></td>
+                    </tr>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i> Cancel
+                </button>
+                <button type="button" id="scProceedBtn" class="btn btn-sm" style="background:var(--pup-red); color:white; border:none;">
+                    <i class="fas fa-save me-1"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    document.addEventListener('DOMContentLoaded', function() {
+        const manageModal = document.getElementById('manageModal');
+        if (!manageModal) return;
+        const form    = manageModal.querySelector('form');
+        const saveBtn = manageModal.querySelector('button[type="submit"]');
+        if (!saveBtn || !form) return;
+
+        saveBtn.type = 'button';
+        saveBtn.addEventListener('click', function() {
+            const reqSel = document.getElementById('mgmt_status');
+            const paySel = document.getElementById('mgmt_payment');
+            const ctrlEl = document.getElementById('mgmt_id');
+            document.getElementById('scControlNum').textContent = ctrlEl ? ctrlEl.value : '—';
+            document.getElementById('scReqStatus').textContent  = reqSel ? (reqSel.options[reqSel.selectedIndex]?.text || '—') : '—';
+            document.getElementById('scPayStatus').textContent  = paySel ? (paySel.options[paySel.selectedIndex]?.text || '—') : '—';
+            new bootstrap.Modal(document.getElementById('saveConfirmModal')).show();
+        });
+
+        document.getElementById('scProceedBtn')?.addEventListener('click', function() {
+            bootstrap.Modal.getInstance(document.getElementById('saveConfirmModal'))?.hide();
+            setTimeout(function() { form.submit(); }, 200);
+        });
+    });
+})();
 </script>
 </body>
 </html>

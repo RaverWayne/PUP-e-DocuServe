@@ -1,5 +1,4 @@
 <?php
-// Shared sidebar for superadmin pages
 // Usage: include 'sidebar.php'; (pass $current_page before including)
 $current_page = $current_page ?? '';
 ?>

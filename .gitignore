@@ -25,3 +25,6 @@ desktop.ini
 # ── Logs (if any get generated) ──────────────────────────────
 *.log
 error_log
+
+# ── Composer binary (local install) ──────────────────────────
+composer.phar

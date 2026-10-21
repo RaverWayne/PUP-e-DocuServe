@@ -3,18 +3,33 @@ FROM php:8.3-cli
 # Install system libraries needed to compile PHP extensions
 RUN apt-get update && apt-get install -y \
     libcurl4-openssl-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libzip-dev \
     pkg-config \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PDO MySQL + curl extensions
+# Install PDO MySQL + curl + zip extensions (zip needed by PhpSpreadsheet)
 RUN docker-php-ext-install pdo_mysql mysqli
 RUN docker-php-ext-install curl
+RUN docker-php-ext-install zip
+
+# gd (PhpSpreadsheet images) + xml (provides dom/simplexml/xmlreader/xmlwriter)
+RUN docker-php-ext-configure gd --with-jpeg \
+    && docker-php-ext-install -j"$(nproc)" gd xml
+
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /app
 
 # Copy application files
 COPY . /app
+
+# Install PHP dependencies (no dev, optimized autoloader)
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Expose port
 EXPOSE 8080

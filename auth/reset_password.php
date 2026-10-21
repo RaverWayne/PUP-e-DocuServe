@@ -2,7 +2,6 @@
 session_start();
 require_once '../config/db.php';
 
-// Already logged in? redirect away
 if (isset($_SESSION['user_id']))  { header("Location: ../student/index.php"); exit(); }
 if (isset($_SESSION['admin_id'])) { header("Location: ../admin/index.php");   exit(); }
 
@@ -12,7 +11,6 @@ $error   = '';
 $valid   = false;
 $user    = null;
 
-// Validate token
 if (!empty($token)) {
     $stmt = $pdo->prepare("
         SELECT id, first_name, last_name, email
@@ -35,7 +33,6 @@ if (empty($token)) {
     $error = "No reset token provided.";
 }
 
-// Handle new password
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
     $password  = $_POST['password']  ?? '';
     $password2 = $_POST['password2'] ?? '';
@@ -234,7 +231,6 @@ function makeToggle(btnId, iconId, inputId) {
 makeToggle('togglePass1', 'togglePass1Icon', 'passInput');
 makeToggle('togglePass2', 'togglePass2Icon', 'passInput2');
 
-// Live Password Checklist validation
 const pwdInput = document.getElementById('passInput');
 const confirmInput = document.getElementById('passInput2');
 

@@ -1,7 +1,4 @@
 <?php
-// ============================================================
-// DATABASE CONNECTION (Cloud & Local Compatible)
-// ============================================================
 
 // Helper to load .env file if present
 $envFile = dirname(__DIR__) . '/.env';

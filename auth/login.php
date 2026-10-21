@@ -2,7 +2,6 @@
 session_start();
 require_once '../config/db.php';
 
-// Redirect if already logged in
 if (isset($_SESSION['user_id'])) {
     header("Location: ../student/index.php");
     exit();
@@ -16,12 +15,10 @@ if (isset($_SESSION['admin_id'])) {
 $error = '';
 $timeout = isset($_GET['timeout']) && $_GET['timeout'] == 1;
 
-// Rate limiting parameters
 $max_attempts = 5;
 $lockout_minutes = 15;
 $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 
-// Clean up old attempts older than 24h
 try {
     $pdo->query("DELETE FROM login_attempts WHERE attempted_at < (NOW() - INTERVAL 24 HOUR)");
 } catch (Exception $e) {
@@ -84,13 +81,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mins = ceil($email_lockout_remaining / 60);
             $error = "Too many failed login attempts for this account. Please wait $mins minute(s) before trying again.";
         } else {
-            // Check student account in users table
             $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user['password'])) {
-                // Check maintenance mode for students
                 $maintStmt = $pdo->query("SELECT setting_value FROM system_settings WHERE setting_key = 'maintenance_mode'");
                 $maintenance = $maintStmt ? ($maintStmt->fetchColumn() === '1') : false;
 
@@ -103,7 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } elseif (($user['status'] ?? 'Active') !== 'Active' || $user['verification_status'] !== 'Active') {
                     $error = "Your account is not active. Please contact the Registrar's Office.";
                 } else {
-                    // Success! Clear failed attempts
                     $pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?")->execute([$ip, $email]);
 
                     $_SESSION['user_id']                  = $user['id'];
@@ -115,13 +109,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit();
                 }
             } else {
-                // Not a student match — check admins table
                 $stmt = $pdo->prepare("SELECT * FROM admins WHERE email = ? AND status = 'Active'");
                 $stmt->execute([$email]);
                 $admin = $stmt->fetch();
 
                 if ($admin && password_verify($password, $admin['password'])) {
-                    // Success! Clear failed attempts
                     $pdo->prepare("DELETE FROM login_attempts WHERE ip_address = ? OR email = ?")->execute([$ip, $email]);
 
                     $_SESSION['admin_id']      = $admin['id'];
@@ -132,7 +124,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit();
                 }
 
-                // Authentication failed - record failed attempt
                 sleep(1); // slow down brute-force attacks
                 $pdo->prepare("INSERT INTO login_attempts (ip_address, email, attempted_at) VALUES (?, ?, NOW())")->execute([$ip, $email]);
 
@@ -393,7 +384,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="navbar-pup">
     <a href="../index.php" class="brand">
         <img src="../assets/images/pup-logo.png" alt="PUP Logo" onerror="this.style.display='none'">
@@ -407,7 +397,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </nav>
 
-<!-- LOGIN WRAPPER -->
 <div class="login-wrapper">
     <div class="login-card">
 
@@ -469,7 +458,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div class="terms-text">
                     By using this service, you understood and agree to the PUP Online Services
-                    <a href="../terms.php">Terms of Use</a> and <a href="../privacy-policy.php">Privacy Statement</a>.
+                    <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal" style="color:var(--pup-red);">Terms of Use</a> and
+                    <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal" style="color:var(--pup-red);">Privacy Statement</a>.
                 </div>
 
                 <div class="login-actions">
@@ -481,15 +471,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
-<!-- FOOTER -->
 <div class="footer-pup">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
-    <a href="../terms.php">Terms of Use</a> | <a href="../privacy-policy.php">Privacy Statement</a>
+    <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Use</a> |
+    <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Statement</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Toggle password visibility
     document.getElementById('togglePass')?.addEventListener('click', function () {
         const input = document.getElementById('passwordInput');
         const icon = document.getElementById('togglePassIcon');
@@ -503,5 +492,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     });
 </script>
+<?php include '../includes/legal_modals.php'; ?>
 </body>
 </html>

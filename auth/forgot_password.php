@@ -3,7 +3,6 @@ session_start();
 require_once '../config/db.php';
 require_once '../includes/mailer.php';
 
-// Already logged in? redirect away
 if (isset($_SESSION['user_id']))  { header("Location: ../student/index.php"); exit(); }
 if (isset($_SESSION['admin_id'])) { header("Location: ../admin/index.php");   exit(); }
 
@@ -25,14 +24,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $success = "If that email is registered, a password reset link has been sent. Check your inbox (and spam folder).";
 
         if ($user) {
-            // Generate a secure random token
             $token   = bin2hex(random_bytes(32));           // 64-char hex
             $expires = gmdate('Y-m-d H:i:s', time() + 3600); // 1 hour (UTC)
 
             $pdo->prepare("UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?")
                 ->execute([$token, $expires, $user['id']]);
 
-            // Build reset URL
             $appUrl = getenv('APP_URL') ?: ($_ENV['APP_URL'] ?? '');
             if (!empty($appUrl)) {
                 $resetUrl = rtrim($appUrl, '/') . '/auth/reset_password.php?token=' . $token;

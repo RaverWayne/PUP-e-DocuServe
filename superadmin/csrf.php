@@ -5,12 +5,10 @@ if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// Hidden input field
 function csrf_field() {
     return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($_SESSION['csrf_token']) . '">';
 }
 
-// Token check
 function csrf_verify() {
     $submitted = $_POST['csrf_token'] ?? '';
     if (empty($submitted) || !hash_equals($_SESSION['csrf_token'] ?? '', $submitted)) {

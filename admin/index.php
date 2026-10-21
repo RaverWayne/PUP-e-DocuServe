@@ -11,34 +11,13 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
 $admin_id   = $_SESSION['admin_id'];
 $admin_name = $_SESSION['admin_name'];
 
-// Summary counts
 $total     = $pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
 $pending   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Pending'")->fetchColumn();
 $processing = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Processing'")->fetchColumn();
 $ready     = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
 $claimed   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
-$walkin    = $pdo->query("SELECT COUNT(*) FROM requests WHERE bank_slip_path = 'walkin' AND payment_status = 'Pending Verification'")->fetchColumn();
-$unpaid    = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Unpaid'")->fetchColumn();
 $pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Pending Verification'")->fetchColumn();
-
-// Turnaround time and SLA metrics
-$avg_tat = $pdo->query("
-    SELECT ROUND(AVG(DATEDIFF(COALESCE(date_released, updated_at), date_filed)), 1)
-    FROM requests
-    WHERE request_status IN ('Claimed', 'Ready for Pickup')
-")->fetchColumn();
-$avg_tat = ($avg_tat !== null && $avg_tat !== false) ? $avg_tat : 0;
-
-$sla_stats = $pdo->query("
-    SELECT
-        COUNT(*) as total_with_target,
-        SUM(CASE WHEN DATE(COALESCE(date_released, updated_at)) <= tentative_release_date THEN 1 ELSE 0 END) as on_time
-    FROM requests
-    WHERE request_status IN ('Claimed', 'Ready for Pickup') AND tentative_release_date IS NOT NULL
-")->fetch();
-$sla_rate = ($sla_stats && $sla_stats['total_with_target'] > 0)
-    ? round(($sla_stats['on_time'] / $sla_stats['total_with_target']) * 100)
-    : 100;
+$walkin    = $pdo->query("SELECT COUNT(*) FROM requests WHERE bank_slip_path = 'walkin' AND payment_status = 'Pending Verification'")->fetchColumn();
 
 $overdue_count = $pdo->query("
     SELECT COUNT(*) FROM requests
@@ -47,13 +26,6 @@ $overdue_count = $pdo->query("
       AND tentative_release_date < CURDATE()
 ")->fetchColumn();
 
-$due_today_count = $pdo->query("
-    SELECT COUNT(*) FROM requests
-    WHERE request_status IN ('Pending', 'Processing')
-      AND tentative_release_date = CURDATE()
-")->fetchColumn();
-
-// Recent requests
 $recent = $pdo->query("
     SELECT r.*, u.first_name, u.last_name, u.course,
            GROUP_CONCAT(d.document_name SEPARATOR ', ') as documents
@@ -79,7 +51,6 @@ $recent = $pdo->query("
         :root { --pup-red: #6D1A1A; --pup-gold: #FFD700; }
         body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; margin: 0; }
 
-        /* SIDEBAR */
         .sidebar {
             position: fixed; top: 0; left: 0;
             width: 220px; height: 100vh;
@@ -128,7 +99,6 @@ $recent = $pdo->query("
         .sidebar-footer a { color: #f66; text-decoration: none; font-size: 12px; }
         .sidebar-footer a:hover { color: #ff8888; }
 
-        /* MAIN CONTENT */
         .main-content {
             margin-left: 220px;
             min-height: 100vh;
@@ -147,7 +117,6 @@ $recent = $pdo->query("
 
         .page-content { padding: 24px; flex: 1; }
 
-        /* CARDS */
         .summary-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -188,7 +157,6 @@ $recent = $pdo->query("
         .card-teal { border-left-color: #16a085; }
         .card-teal .card-icon { background: #16a085; }
 
-        /* TABLES */
         .section-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; }
         .section-header { background: #f5f5f5; padding: 12px 18px; font-weight: 700; font-size: 13px; color: #333; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
 
@@ -224,7 +192,6 @@ $recent = $pdo->query("
 </head>
 <body>
 
-<!-- SIDEBAR -->
 <div class="sidebar">
     <div class="sidebar-brand">
         <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
@@ -258,7 +225,6 @@ $recent = $pdo->query("
     </div>
 </div>
 
-<!-- MAIN CONTENT -->
 <div class="main-content">
     <div class="topbar">
         <div class="topbar-title"><i class="fas fa-tachometer-alt me-2" style="color:var(--pup-red);"></i>Dashboard</div>
@@ -267,8 +233,7 @@ $recent = $pdo->query("
 
     <div class="page-content">
 
-        <!-- SUMMARY CARDS ROW 1 -->
-        <div class="summary-grid">
+        <div class="summary-grid" style="grid-template-columns: repeat(3, 1fr);">
             <div class="summary-card card-red">
                 <div class="card-icon"><i class="fas fa-file-alt"></i></div>
                 <div class="card-info">
@@ -280,7 +245,7 @@ $recent = $pdo->query("
                 <div class="card-icon"><i class="fas fa-clock"></i></div>
                 <div class="card-info">
                     <div class="card-num"><?= $pending ?></div>
-                    <div class="card-label">Pending Requests</div>
+                    <div class="card-label">Pending</div>
                 </div>
             </div>
             <div class="summary-card card-blue">
@@ -290,6 +255,9 @@ $recent = $pdo->query("
                     <div class="card-label">Processing</div>
                 </div>
             </div>
+        </div>
+
+        <div class="summary-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: -8px;">
             <div class="summary-card card-green">
                 <div class="card-icon"><i class="fas fa-check-circle"></i></div>
                 <div class="card-info">
@@ -297,10 +265,6 @@ $recent = $pdo->query("
                     <div class="card-label">Ready for Pickup</div>
                 </div>
             </div>
-        </div>
-
-        <!-- SUMMARY CARDS ROW 2 -->
-        <div class="summary-grid" style="grid-template-columns: repeat(4,1fr); margin-top:-8px;">
             <div class="summary-card card-dark">
                 <div class="card-icon"><i class="fas fa-box"></i></div>
                 <div class="card-info">
@@ -308,65 +272,11 @@ $recent = $pdo->query("
                     <div class="card-label">Claimed</div>
                 </div>
             </div>
-            <div class="summary-card card-yellow">
-                <div class="card-icon"><i class="fas fa-walking"></i></div>
-                <div class="card-info">
-                    <div class="card-num"><?= $walkin ?></div>
-                    <div class="card-label">Walk-in Pending</div>
-                </div>
-            </div>
             <div class="summary-card card-purple">
                 <div class="card-icon"><i class="fas fa-hourglass-half"></i></div>
                 <div class="card-info">
                     <div class="card-num"><?= $pending_payment ?></div>
                     <div class="card-label">Pending Verification</div>
-                </div>
-            </div>
-            <div class="summary-card card-teal">
-                <div class="card-icon"><i class="fas fa-exclamation-circle"></i></div>
-                <div class="card-info">
-                    <div class="card-num"><?= $unpaid ?></div>
-                    <div class="card-label">Unpaid</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- SLA & PERFORMANCE METRICS -->
-        <div class="row g-3 mb-4" style="margin-top:-8px;">
-            <div class="col-md-3 col-sm-6">
-                <div class="summary-card" style="border-left-color: #2c3e50;">
-                    <div class="card-icon" style="background: #2c3e50;"><i class="fas fa-stopwatch"></i></div>
-                    <div class="card-info">
-                        <div class="card-num"><?= $avg_tat ?> <span style="font-size:12px; font-weight:normal; color:#888;">days</span></div>
-                        <div class="card-label">Avg. Turnaround Time</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="summary-card" style="border-left-color: #27ae60;">
-                    <div class="card-icon" style="background: #27ae60;"><i class="fas fa-award"></i></div>
-                    <div class="card-info">
-                        <div class="card-num"><?= $sla_rate ?>%</div>
-                        <div class="card-label">SLA Compliance Rate</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="summary-card" style="border-left-color: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;">
-                    <div class="card-icon" style="background: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;"><i class="fas fa-calendar-check"></i></div>
-                    <div class="card-info">
-                        <div class="card-num"><?= $due_today_count ?></div>
-                        <div class="card-label">Requests Due Today</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="summary-card" style="border-left-color: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;">
-                    <div class="card-icon" style="background: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;"><i class="fas <?= $overdue_count > 0 ? 'fa-exclamation-triangle' : 'fa-check' ?>"></i></div>
-                    <div class="card-info">
-                        <div class="card-num"><?= $overdue_count ?></div>
-                        <div class="card-label">Overdue Target Date</div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -381,7 +291,6 @@ $recent = $pdo->query("
             </div>
         <?php endif; ?>
 
-        <!-- RECENT REQUESTS -->
         <div class="section-card">
             <div class="section-header">
                 <span><i class="fas fa-history me-2" style="color:var(--pup-red);"></i>Recent Requests</span>

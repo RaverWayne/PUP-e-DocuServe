@@ -8,7 +8,6 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-// Session timeout
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
     if (time() - $_SESSION['last_activity'] > 600) {
         session_unset();
@@ -25,7 +24,6 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
 
-// Check if already submitted
 $check = $pdo->prepare("SELECT id FROM feedback WHERE user_id = ?");
 $check->execute([$user_id]);
 $already_submitted = $check->fetch();
@@ -235,7 +233,6 @@ $questions = [
         </div>
 
         <button type="submit" class="btn-submit"><i class="fas fa-paper-plane me-2"></i>Submit Feedback</button>
-        <!-- <a href="requests.php" class="btn-skip">Skip for now</a> -->
     </form>
 <?php endif; ?>
 

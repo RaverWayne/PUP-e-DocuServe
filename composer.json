@@ -1,0 +1,6 @@
+{
+    "require": {
+        "phpoffice/phpspreadsheet": "^5.10",
+        "cloudinary/cloudinary_php": "^2"
+    }
+}

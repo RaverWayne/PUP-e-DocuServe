@@ -6,7 +6,6 @@ $errors  = [];
 $success = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // --- Collect inputs ---
     $student_number  = trim($_POST['student_number'] ?? '');
     $email           = trim($_POST['email'] ?? '');
     $confirm_email   = trim($_POST['confirm_email'] ?? '');
@@ -29,7 +28,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $elementary      = trim($_POST['elementary'] ?? '');
     $elem_year_grad  = $_POST['elem_year_grad'] ?? '';
 
-    // Resolve suffix: custom overrides dropdown if filled
     $suffix_final = '';
     if (!empty($suffix_custom)) {
         $suffix_final = $suffix_custom;
@@ -37,11 +35,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $suffix_final = $suffix_select;
     }
 
-    // -------------------------------------------------------
-    // VALIDATIONS
-    // -------------------------------------------------------
-
-    // 1. Student Number — required, format YYYY-XXXXX-BN-0
     if (empty($student_number)) {
         $errors[] = "Student Number is required.";
     } elseif (!preg_match('/^\d{4}-\d{5}-BN-0$/', $student_number)) {
@@ -54,7 +47,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 2. Email
     if (empty($email)) {
         $errors[] = "Email address is required.";
     } elseif (strtolower($email) === 'n/a') {
@@ -71,7 +63,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // 3. Password
     if (empty($password)) {
         $errors[] = "Password is required.";
     } elseif (strlen($password) < 8) {
@@ -86,7 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = "Passwords do not match.";
     }
 
-    // 4. Mobile Number — required, exactly 11 numeric digits, no N/A
     if (empty($mobile)) {
         $errors[] = "Mobile number is required.";
     } elseif (strtolower($mobile) === 'n/a') {
@@ -95,29 +85,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = "Mobile number must be exactly 11 numeric digits (e.g. 09171234567).";
     }
 
-    // 5. Name fields
     if (empty($last_name))  $errors[] = "Last name is required.";
     if (empty($first_name)) $errors[] = "First name is required.";
 
-    // 6. Middle Name — required; "N/A" accepted if no middle name
     if (empty($middle_name)) {
         $errors[] = "Middle name is required. Enter \"N/A\" if you have no middle name.";
     }
 
-    // 7. Date of Birth — required
     if (empty($dob)) {
         $errors[] = "Date of birth is required.";
     }
 
-    // 8. Other required fields
     if (empty($address))      $errors[] = "Permanent address is required.";
     if (empty($course))       $errors[] = "Course/Program is required.";
-    if (empty($high_school))  $errors[] = "High school name is required.";
-    if (empty($elementary))   $errors[] = "Elementary school name is required.";
 
-    // -------------------------------------------------------
-    // INSERT (only if no errors)
-    // -------------------------------------------------------
     if (empty($errors)) {
         $hashed_password = password_hash($password, PASSWORD_BCRYPT);
 
@@ -400,7 +381,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="navbar-pup">
     <a href="../index.php" class="brand">
         <img src="../assets/images/pup-logo.png" alt="PUP Logo" onerror="this.style.display='none'">
@@ -439,10 +419,8 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
     <form method="POST" action="">
         <div class="row g-4">
 
-            <!-- LEFT COLUMN -->
             <div class="col-md-6">
 
-                <!-- Account Information -->
                 <div class="section-card">
                     <div class="section-header">Account Information</div>
                     <div class="section-body">
@@ -485,7 +463,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                                     <i class="fas fa-eye" id="togglePasswordIcon"></i>
                                 </button>
                             </div>
-                            <!-- Live Password Checklist -->
                             <ul class="pwd-checklist" id="pwdChecklist" aria-live="polite">
                                 <li id="req-len" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 8 characters</li>
                                 <li id="req-upper" class="pwd-req invalid"><i class="fas fa-circle-xmark"></i> At least 1 uppercase letter (A-Z)</li>
@@ -519,7 +496,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                     </div>
                 </div>
 
-                <!-- Educational Information -->
                 <div class="section-card">
                     <div class="section-header">Educational Information</div>
                     <div class="section-body">
@@ -576,12 +552,12 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
                         <div class="row mb-3">
                             <div class="col-8">
-                                <label class="form-label">High School Graduated From <span class="req">*</span></label>
+                                <label class="form-label">High School Graduated From</label>
                                 <input type="text" name="high_school" class="form-control" placeholder="High School"
                                     value="<?= htmlspecialchars($_POST['high_school'] ?? '') ?>">
                             </div>
                             <div class="col-4">
-                                <label class="form-label">Year Graduated <span class="req">*</span></label>
+                                <label class="form-label">Year Graduated</label>
                                 <select name="hs_year_grad" class="form-select">
                                     <option value="">Year</option>
                                     <?php foreach ($years as $y): ?>
@@ -595,12 +571,12 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
                         <div class="row mb-0">
                             <div class="col-8">
-                                <label class="form-label">Elementary School Graduated From <span class="req">*</span></label>
+                                <label class="form-label">Elementary School Graduated From</label>
                                 <input type="text" name="elementary" class="form-control" placeholder="Elementary School"
                                     value="<?= htmlspecialchars($_POST['elementary'] ?? '') ?>">
                             </div>
                             <div class="col-4">
-                                <label class="form-label">Year Graduated <span class="req">*</span></label>
+                                <label class="form-label">Year Graduated</label>
                                 <select name="elem_year_grad" class="form-select">
                                     <option value="">Year</option>
                                     <?php foreach ($years as $y): ?>
@@ -617,10 +593,8 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
             </div><!-- /LEFT COLUMN -->
 
-            <!-- RIGHT COLUMN -->
             <div class="col-md-6">
 
-                <!-- Personal Information -->
                 <div class="section-card">
                     <div class="section-header">Personal Information</div>
                     <div class="section-body">
@@ -637,7 +611,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                                 value="<?= htmlspecialchars($_POST['first_name'] ?? '') ?>">
                         </div>
 
-                        <!-- Middle Name — required; N/A accepted -->
                         <div class="mb-3">
                             <label class="form-label">Middle Name (while in PUP) <span class="req">*</span></label>
                             <input type="text" name="middle_name" class="form-control"
@@ -649,7 +622,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                             </div>
                         </div>
 
-                        <!-- Suffix — dropdown + custom text fallback -->
                         <div class="mb-3">
                             <label class="form-label">Suffix <span style="color:#aaa; font-weight:400;">(optional)</span></label>
                             <div class="suffix-wrapper">
@@ -686,15 +658,14 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                     </div>
                 </div>
 
-                <!-- Terms & Submit -->
                 <div class="section-card">
                     <div class="section-body">
                         <div class="form-check mb-3">
                             <input class="form-check-input" type="checkbox" id="agreeTerms" name="agree_terms" required>
                             <label class="form-check-label" for="agreeTerms" style="font-size:12px;">
                                 I am a student/graduate of PUP Biñan Campus and I agree to the
-                                <a href="#" style="color: var(--pup-red);">Terms of Use</a> and
-                                <a href="#" style="color: var(--pup-red);">Privacy Statement</a>.
+                                <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal" style="color: var(--pup-red);">Terms of Use</a> and
+                                <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal" style="color: var(--pup-red);">Privacy Statement</a>.
                             </label>
                         </div>
                         <button type="submit" class="btn-submit w-100">
@@ -713,15 +684,14 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
 </div><!-- /register-wrapper -->
 
-<!-- FOOTER -->
 <div class="footer-pup">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
-    <a href="#">Terms of Use</a> | <a href="#">Privacy Statement</a>
+    <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Use</a> |
+    <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Statement</a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Show custom suffix text input when "Other..." is selected
     const suffixSelect = document.getElementById('suffixSelect');
     const suffixCustom = document.getElementById('suffixCustom');
 
@@ -742,12 +712,10 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
         suffixCustom.style.display = 'block';
     }
 
-    // Mobile number: restrict to digits only
     document.querySelector('input[name="mobile_number"]')?.addEventListener('input', function () {
         this.value = this.value.replace(/\D/g, '').slice(0, 11);
     });
 
-    // Password visibility toggles
     function setupPassToggle(btnId, iconId, inputId) {
         const btn = document.getElementById(btnId);
         const icon = document.getElementById(iconId);
@@ -764,7 +732,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
     setupPassToggle('togglePasswordBtn', 'togglePasswordIcon', 'password');
     setupPassToggle('toggleConfirmBtn', 'toggleConfirmIcon', 'confirm_password');
 
-    // Live Password Checklist validation
     const pwdInput = document.getElementById('password');
     const confirmInput = document.getElementById('confirm_password');
 
@@ -806,5 +773,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
         confirmInput.addEventListener('input', checkPasswordComplexity);
     }
 </script>
+<?php include '../includes/legal_modals.php'; ?>
 </body>
 </html>

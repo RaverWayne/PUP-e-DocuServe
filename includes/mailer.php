@@ -8,12 +8,9 @@
  * All outgoing email goes through sendMail().
  */
 
-// ─────────────────────────────────────────────────────────────
 // Core send function
-// ─────────────────────────────────────────────────────────────
 function sendMail(PDO $pdo, string $toEmail, string $toName, string $subject, string $htmlBody, string $plainBody = ''): bool
 {
-    // Pull Brevo config from DB
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings
                           WHERE setting_key IN ('brevo_api_key','smtp_from_name','smtp_from_email')");
     $cfg  = [];
@@ -66,9 +63,7 @@ function sendMail(PDO $pdo, string $toEmail, string $toName, string $subject, st
     return false;
 }
 
-// ─────────────────────────────────────────────────────────────
 // Email template wrapper
-// ─────────────────────────────────────────────────────────────
 function emailWrap(string $title, string $bodyContent): string
 {
     return '<!DOCTYPE html>
@@ -83,7 +78,6 @@ function emailWrap(string $title, string $bodyContent): string
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 
-        <!-- HEADER -->
         <tr>
           <td style="background:#6D1A1A;padding:24px 32px;text-align:center;">
             <div style="color:#FFD700;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">
@@ -94,14 +88,12 @@ function emailWrap(string $title, string $bodyContent): string
           </td>
         </tr>
 
-        <!-- BODY -->
         <tr>
           <td style="padding:32px;">
             ' . $bodyContent . '
           </td>
         </tr>
 
-        <!-- FOOTER -->
         <tr>
           <td style="background:#f5f5f5;padding:16px 32px;text-align:center;font-size:11px;color:#999;border-top:1px solid #eee;">
             This is an automated message from PUP e-DocuServe. Please do not reply to this email.<br>
@@ -116,9 +108,7 @@ function emailWrap(string $title, string $bodyContent): string
 </html>';
 }
 
-// ─────────────────────────────────────────────────────────────
 // Template: Account Approved
-// ─────────────────────────────────────────────────────────────
 function emailAccountApproved(string $firstName): string
 {
     $body = '
@@ -141,9 +131,7 @@ function emailAccountApproved(string $firstName): string
     return emailWrap('Account Approved — PUP e-DocuServe', $body);
 }
 
-// ─────────────────────────────────────────────────────────────
 // Template: Account Rejected
-// ─────────────────────────────────────────────────────────────
 function emailAccountRejected(string $firstName): string
 {
     $body = '
@@ -164,9 +152,7 @@ function emailAccountRejected(string $firstName): string
     return emailWrap('Account Registration Update — PUP e-DocuServe', $body);
 }
 
-// ─────────────────────────────────────────────────────────────
 // Template: Request Status Update
-// ─────────────────────────────────────────────────────────────
 function emailRequestStatusUpdate(
     string $firstName,
     string $controlNumber,
@@ -254,9 +240,7 @@ function emailRequestStatusUpdate(
     return emailWrap('Request Status Update — ' . $controlNumber, $body);
 }
 
-// ─────────────────────────────────────────────────────────────
 // Template: Password Reset
-// ─────────────────────────────────────────────────────────────
 function emailPasswordReset(string $firstName, string $resetUrl, int $expiryMinutes = 60): string
 {
     $body = '

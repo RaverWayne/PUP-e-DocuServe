@@ -10,11 +10,9 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
 
 $admin_name = $_SESSION['admin_name'];
 
-// Date filter
 $date_from = $_GET['date_from'] ?? date('Y-m-01');
 $date_to   = $_GET['date_to']   ?? date('Y-m-d');
 
-// Summary for date range
 $total_range    = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE DATE(date_filed) BETWEEN ? AND ?");
 $total_range->execute([$date_from, $date_to]);
 $total_range = $total_range->fetchColumn();
@@ -27,7 +25,6 @@ $claimed_range = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE request_stat
 $claimed_range->execute([$date_from, $date_to]);
 $claimed_range = $claimed_range->fetchColumn();
 
-// Turnaround time & SLA Compliance for date range
 $tat_stmt = $pdo->prepare("
     SELECT ROUND(AVG(DATEDIFF(COALESCE(date_released, updated_at), date_filed)), 1)
     FROM requests
@@ -53,7 +50,6 @@ $sla_rate_range = ($sla_range_data && $sla_range_data['total_with_target'] > 0)
     ? round(($sla_range_data['on_time'] / $sla_range_data['total_with_target']) * 100)
     : 100;
 
-// Requests by status
 $by_status = $pdo->prepare("
     SELECT request_status, COUNT(*) as count
     FROM requests
@@ -63,7 +59,6 @@ $by_status = $pdo->prepare("
 $by_status->execute([$date_from, $date_to]);
 $by_status = $by_status->fetchAll();
 
-// Requests by course
 $by_course = $pdo->prepare("
     SELECT u.course, COUNT(r.id) as count
     FROM requests r
@@ -75,7 +70,6 @@ $by_course = $pdo->prepare("
 $by_course->execute([$date_from, $date_to]);
 $by_course = $by_course->fetchAll();
 
-// Most requested documents
 $top_docs = $pdo->prepare("
     SELECT d.document_name, COUNT(ri.id) as count
     FROM request_items ri
@@ -89,7 +83,6 @@ $top_docs = $pdo->prepare("
 $top_docs->execute([$date_from, $date_to]);
 $top_docs = $top_docs->fetchAll();
 
-// Requests by purpose
 $by_purpose = $pdo->prepare("
     SELECT purpose, COUNT(*) as count
     FROM requests
@@ -100,7 +93,6 @@ $by_purpose = $pdo->prepare("
 $by_purpose->execute([$date_from, $date_to]);
 $by_purpose = $by_purpose->fetchAll();
 
-// Daily requests trend
 $daily = $pdo->prepare("
     SELECT DATE(date_filed) as day, COUNT(*) as count
     FROM requests
@@ -111,7 +103,6 @@ $daily = $pdo->prepare("
 $daily->execute([$date_from, $date_to]);
 $daily = $daily->fetchAll();
 
-// Requests Today filters
 $today_date_from = $_GET['today_date_from'] ?? date('Y-m-d');
 $today_date_to   = $_GET['today_date_to']   ?? date('Y-m-d');
 $today_time      = $_GET['today_time']      ?? '';
@@ -153,7 +144,6 @@ $today_requests = $pdo->prepare($today_query);
 $today_requests->execute($today_params);
 $today_requests = $today_requests->fetchAll();
 
-// Get unique courses for filter
 $courses_list = $pdo->query("SELECT DISTINCT course FROM users WHERE course IS NOT NULL ORDER BY course")->fetchAll(PDO::FETCH_COLUMN);
 
 $current_page = 'reports';
@@ -227,7 +217,6 @@ $current_page = 'reports';
 
     <div class="page-content">
 
-        <!-- DATE FILTER -->
         <div class="section-card">
             <div class="section-header">Filter by Date Range</div>
             <div class="section-body">
@@ -254,7 +243,6 @@ $current_page = 'reports';
             </div>
         </div>
 
-        <!-- SUMMARY CARDS -->
         <div class="summary-grid">
             <div class="summary-card card-red">
                 <div class="card-num"><?= $total_range ?></div>
@@ -278,7 +266,6 @@ $current_page = 'reports';
             </div>
         </div>
 
-        <!-- REQUESTS TODAY SECTION -->
         <div class="section-card">
             <div class="section-header">Requests Today</div>
             <div class="section-body">
@@ -388,9 +375,7 @@ $current_page = 'reports';
             </div>
         </div>
 
-        <!-- CHARTS ROW -->
         <div class="two-col">
-            <!-- Daily Trend -->
             <div class="section-card">
                 <div class="section-header">Daily Requests Trend</div>
                 <div class="section-body">
@@ -398,7 +383,6 @@ $current_page = 'reports';
                 </div>
             </div>
 
-            <!-- By Status -->
             <div class="section-card">
                 <div class="section-header">Requests by Status</div>
                 <div class="section-body">
@@ -408,7 +392,6 @@ $current_page = 'reports';
         </div>
 
         <div class="two-col">
-            <!-- Top Documents -->
             <div class="section-card">
                 <div class="section-header">Most Requested Documents</div>
                 <div style="overflow-x:auto;">
@@ -433,7 +416,6 @@ $current_page = 'reports';
                 </div>
             </div>
 
-            <!-- By Purpose -->
             <div class="section-card">
                 <div class="section-header">Requests by Purpose</div>
                 <div class="section-body">
@@ -460,7 +442,6 @@ $current_page = 'reports';
             </div>
         </div>
 
-        <!-- By Course -->
         <div class="section-card">
             <div class="section-header">Requests by Course/Program</div>
             <div style="overflow-x:auto;">
@@ -506,7 +487,6 @@ $current_page = 'reports';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Daily Trend Chart
 const trendLabels = <?= json_encode(array_column($daily, 'day')) ?>;
 const trendData   = <?= json_encode(array_column($daily, 'count')) ?>;
 
@@ -531,7 +511,6 @@ new Chart(document.getElementById('trendChart'), {
     }
 });
 
-// Status Chart
 const statusLabels = <?= json_encode(array_column($by_status, 'request_status')) ?>;
 const statusData   = <?= json_encode(array_column($by_status, 'count')) ?>;
 const statusColors = ['#95a5a6','#3498db','#27ae60','#2c3e50','#e74c3c'];

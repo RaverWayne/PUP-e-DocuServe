@@ -10,45 +10,63 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
 }
 
 $admin_name = $_SESSION['admin_name'];
-$success = '';
+$success = '';  
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
-    // Handle regular settings
-    if (!$error) {
-        $keys = [
-            'school_year', 'office_hours', 'office_contact', 'office_email',
-            'processing_notice', 'bank_name', 'bank_account_name',
-            'bank_account_number', 'maintenance_mode',
-            'smtp_from_name', 'smtp_from_email'
-        ];
-        foreach ($keys as $key) {
+    $section = $_POST['section'] ?? '';
+
+    $section_keys = [
+        'general'     => ['school_year', 'office_hours', 'office_contact', 'office_email', 'processing_notice'],
+        'landing'     => ['landing_tagline', 'landing_advisory_title', 'landing_advisory_body', 'landing_howto_title', 'landing_howto_steps', 'landing_instructions_steps', 'landing_instructions_note'],
+        'bank'        => ['bank_name', 'bank_account_name', 'bank_account_number'],
+        'maintenance' => ['maintenance_mode'],
+        'email'       => ['smtp_from_name', 'smtp_from_email'],
+        'legal'       => ['terms_of_use', 'privacy_statement'],
+    ];
+
+    if (isset($section_keys[$section])) {
+        foreach ($section_keys[$section] as $key) {
             if (isset($_POST[$key])) {
-                $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?")
-                    ->execute([$_POST[$key], $key]);
+                $exists = $pdo->prepare("SELECT COUNT(*) FROM system_settings WHERE setting_key = ?");
+                $exists->execute([$key]);
+                if ($exists->fetchColumn() > 0) {
+                    $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?")
+                        ->execute([$_POST[$key], $key]);
+                } else {
+                    $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)")
+                        ->execute([$key, $_POST[$key]]);
+                }
             }
         }
-        // Brevo API key — only update if submitted (upsert, since it may not exist yet)
-        if (!empty($_POST['brevo_api_key'])) {
-            $exists = $pdo->query("SELECT COUNT(*) FROM system_settings WHERE setting_key = 'brevo_api_key'")->fetchColumn();
-            if ($exists) {
-                $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = 'brevo_api_key'")
-                    ->execute([$_POST['brevo_api_key']]);
-            } else {
-                $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('brevo_api_key', ?)")
-                    ->execute([$_POST['brevo_api_key']]);
-            }
+    }
+
+    // Special case: brevo_api_key only updates if not empty
+    if ($section === 'email' && !empty($_POST['brevo_api_key'])) {
+        $exists = $pdo->query("SELECT COUNT(*) FROM system_settings WHERE setting_key = 'brevo_api_key'")->fetchColumn();
+        if ($exists) {
+            $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = 'brevo_api_key'")
+                ->execute([$_POST['brevo_api_key']]);
+        } else {
+            $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('brevo_api_key', ?)")
+                ->execute([$_POST['brevo_api_key']]);
         }
-        if (!$success) {
-            $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role) VALUES (?, ?, ?, ?)")
-                ->execute(["Updated system settings", $admin_name, $_SESSION['admin_id'], $_SESSION['admin_role']]);
-            $success = "System settings saved successfully.";
-        }
+    }
+
+    if (!$error) {
+        $sectionLabels = [
+            'general' => 'General Information', 'landing' => 'Landing Page Content',
+            'bank' => 'Bank Payment Information', 'maintenance' => 'Maintenance Mode',
+            'email' => 'Email Notifications', 'legal' => 'Legal / Policy Pages',
+        ];
+        $sectionLabel = $sectionLabels[$section] ?? $section;
+        $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role) VALUES (?, ?, ?, ?)")
+            ->execute(["Updated system settings [$sectionLabel]", $admin_name, $_SESSION['admin_id'], $_SESSION['admin_role']]);
+        $success = "Settings saved successfully.";
     }
 }
 
-// Fetch all settings
 $stmt     = $pdo->query("SELECT * FROM system_settings");
 $settings = [];
 foreach ($stmt->fetchAll() as $row) {
@@ -97,8 +115,7 @@ $current_page = 'settings';
         .btn-save { background: var(--sa-color); color: white; border: none; padding: 10px 32px; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .btn-save:hover { background: #283593; }
         .maintenance-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 14px 16px; margin-bottom: 16px; font-size: 13px; color: #856404; }
-        .footer-admin { background: white; border-top: 1px solid #eee; padding: 12px 24px; text-align: center; font-size: 12px; color: #aaa; }
-    </style>
+        .footer-admin { background: white; border-top: 1px solid #eee; padding: 12px 24px; text-align: center; font-size: 12px; color: #aaa; }    </style>
 </head>
 <body>
 
@@ -121,8 +138,8 @@ $current_page = 'settings';
 
         <form method="POST" enctype="multipart/form-data">
             <?= csrf_field() ?>
+            <input type="hidden" name="section" value="general">
 
-            <!-- General Settings -->
             <div class="section-card">
                 <div class="section-header"><i class="fas fa-university me-2" style="color:var(--sa-color);"></i>General Information</div>
                 <div class="section-body">
@@ -147,11 +164,77 @@ $current_page = 'settings';
                             <label class="form-label">Processing Notice <span style="font-weight:400; color:#888;">(shown on New Request page)</span></label>
                             <textarea name="processing_notice" class="form-control" rows="2"><?= htmlspecialchars($settings['processing_notice'] ?? '') ?></textarea>
                         </div>
+                        <div class="col-12 pt-2">
+                            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save General Information</button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Bank Settings -->
+        </form>
+
+        <form method="POST">
+            <?= csrf_field() ?>
+            <input type="hidden" name="section" value="landing">
+            <div class="section-card">
+                <div class="section-header"><i class="fas fa-globe me-2" style="color:#e67e22;"></i>Landing Page Content</div>
+                <div class="section-body">
+                    <div style="background:#fff8e1; border:1px solid #ffc107; border-left:4px solid #e67e22; border-radius:6px; padding:10px 14px; font-size:12px; color:#856404; margin-bottom:18px;">
+                        <i class="fas fa-bolt me-1"></i>
+                        <strong>Changes here are immediately visible to all public visitors on the homepage — no developer or code changes needed.</strong>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Hero Tagline <span style="font-weight:400; color:#888;">(shown below the campus name in the header)</span></label>
+                            <input type="text" name="landing_tagline" class="form-control"
+                                value="<?= htmlspecialchars($settings['landing_tagline'] ?? '') ?>"
+                                placeholder="e.g. Request, Pay, Submit the Requirements, Monitor, and Claim.">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Advisory Box — Title</label>
+                            <input type="text" name="landing_advisory_title" class="form-control"
+                                value="<?= htmlspecialchars($settings['landing_advisory_title'] ?? '') ?>"
+                                placeholder="⚠ Advisory to Our Clients">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Advisory Box — Content</label>
+                            <textarea name="landing_advisory_body" class="form-control" rows="4"
+                                placeholder="Advisory text shown in the red box on the homepage…"><?= htmlspecialchars($settings['landing_advisory_body'] ?? '') ?></textarea>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">How to Submit — Section Title</label>
+                            <input type="text" name="landing_howto_title" class="form-control"
+                                value="<?= htmlspecialchars($settings['landing_howto_title'] ?? '') ?>"
+                                placeholder="How to Submit Your Document Request">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">How to Submit — Steps</label>
+                            <textarea name="landing_howto_steps" class="form-control" rows="5"
+                                placeholder="One step per line…"><?= htmlspecialchars($settings['landing_howto_steps'] ?? '') ?></textarea>
+                            <div style="font-size:11px; color:#999; margin-top:3px;">One step per line. Steps are numbered automatically on the homepage.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Instructions Modal — Steps <span style="font-weight:400; color:#888;">(the "Read Instructions" popup)</span></label>
+                            <textarea name="landing_instructions_steps" class="form-control" rows="8"
+                                placeholder="One step per line…"><?= htmlspecialchars($settings['landing_instructions_steps'] ?? '') ?></textarea>
+                            <div style="font-size:11px; color:#999; margin-top:3px;">One step per line. Shown as a numbered list in the modal.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Instructions Modal — Warning Note <span style="font-weight:400; color:#888;">(yellow box at bottom)</span></label>
+                            <textarea name="landing_instructions_note" class="form-control" rows="3"
+                                placeholder="e.g. Requests with incomplete requirements will be deleted after 90 days…"><?= htmlspecialchars($settings['landing_instructions_note'] ?? '') ?></textarea>
+                        </div>
+                        <div class="col-12 pt-2">
+                            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save Landing Page Content</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <form method="POST">
+            <?= csrf_field() ?>
+            <input type="hidden" name="section" value="bank">
             <div class="section-card">
                 <div class="section-header"><i class="fas fa-university me-2" style="color:#27ae60;"></i>Bank Payment Information</div>
                 <div class="section-body">
@@ -168,11 +251,17 @@ $current_page = 'settings';
                             <label class="form-label">Account Number</label>
                             <input type="text" name="bank_account_number" class="form-control" value="<?= htmlspecialchars($settings['bank_account_number'] ?? '') ?>">
                         </div>
+                        <div class="col-12 pt-2">
+                            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save Bank Information</button>
+                        </div>
                     </div>
                 </div>
             </div>
+        </form>
 
-            <!-- Maintenance Mode -->
+        <form method="POST">
+            <?= csrf_field() ?>
+            <input type="hidden" name="section" value="maintenance">
             <div class="section-card">
                 <div class="section-header"><i class="fas fa-tools me-2" style="color:#e74c3c;"></i>Maintenance Mode</div>
                 <div class="section-body">
@@ -193,11 +282,17 @@ $current_page = 'settings';
                         <div class="col-md-8" style="font-size:12px; color:#888; margin-top:20px;">
                             When turned ON, students will be shown a maintenance message when they try to log in.
                         </div>
+                        <div class="col-12 pt-2">
+                            <button type="submit" class="btn-save" style="background:#e74c3c;"><i class="fas fa-save me-2"></i>Save Maintenance Mode</button>
+                        </div>
                     </div>
                 </div>
             </div>
+        </form>
 
-            <!-- Email / Brevo API Settings -->
+        <form method="POST">
+            <?= csrf_field() ?>
+            <input type="hidden" name="section" value="email">
             <div class="section-card">
                 <div class="section-header"><i class="fas fa-envelope me-2" style="color:#3498db;"></i>Email Notifications (Brevo API)</div>
                 <div class="section-body">
@@ -249,13 +344,42 @@ $current_page = 'settings';
                         </div>
                     </div>
 
-                    <!-- Test result area -->
                     <div id="brevoTestResult" style="display:none; margin-top:14px;"></div>
+
+                    <div class="mt-3">
+                        <button type="submit" class="btn-save" style="background:#3498db;"><i class="fas fa-save me-2"></i>Save Email Settings</button>
+                    </div>
                 </div>
             </div>
+        </form>
 
-            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save All Settings</button>
-
+        <form method="POST">
+            <?= csrf_field() ?>
+            <input type="hidden" name="section" value="legal">
+            <div class="section-card">
+                <div class="section-header"><i class="fas fa-gavel me-2" style="color:#6D1A1A;"></i>Legal / Policy Pages</div>
+                <div class="section-body">
+                    <div style="font-size:12px; color:#888; margin-bottom:16px; padding:10px 14px; background:#fff5f5; border-radius:6px; border-left:4px solid #6D1A1A;">
+                        <i class="fas fa-info-circle me-1"></i>
+                        These texts appear in the <strong>Terms of Use</strong> and <strong>Privacy Statement</strong> modals accessible from the footer of all student-facing pages.
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Terms of Use</label>
+                            <textarea name="terms_of_use" class="form-control" rows="6"
+                                placeholder="Enter your Terms of Use policy text here…"><?= htmlspecialchars($settings['terms_of_use'] ?? '') ?></textarea>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Privacy Statement</label>
+                            <textarea name="privacy_statement" class="form-control" rows="6"
+                                placeholder="Enter your Privacy Statement text here…"><?= htmlspecialchars($settings['privacy_statement'] ?? '') ?></textarea>
+                        </div>
+                        <div class="col-12 pt-2">
+                            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save Legal Pages</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </form>
     </div>
 
@@ -266,7 +390,6 @@ $current_page = 'settings';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Brevo API key toggle
 document.getElementById('toggleBrevoKey')?.addEventListener('click', function () {
     const inp = document.getElementById('brevoApiKeyInput');
     inp.type  = inp.type === 'password' ? 'text' : 'password';
@@ -274,7 +397,6 @@ document.getElementById('toggleBrevoKey')?.addEventListener('click', function ()
     this.classList.toggle('fa-eye-slash');
 });
 
-// Brevo API key test
 document.getElementById('btnTestBrevo')?.addEventListener('click', function () {
     const apiKey = document.querySelector('[name=brevo_api_key]').value.trim();
     const result = document.getElementById('brevoTestResult');

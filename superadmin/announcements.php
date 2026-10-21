@@ -121,7 +121,6 @@ $current_page  = 'announcements';
             <div class="alert alert-danger py-2 mb-3" style="font-size:13px;"><i class="fas fa-exclamation-circle me-1"></i> <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
 
-        <!-- POST FORM -->
         <div class="section-card">
             <div class="section-header">Post New Announcement</div>
             <div class="section-body">
@@ -144,7 +143,6 @@ $current_page  = 'announcements';
             </div>
         </div>
 
-        <!-- ANNOUNCEMENTS LIST -->
         <div class="section-card">
             <div class="section-header">All Announcements (<?= count($announcements) ?>)</div>
             <div class="section-body">

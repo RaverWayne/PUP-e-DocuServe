@@ -15,7 +15,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_POST['action'] ?? '') !== 'test_
 
 $apiKey = trim($_POST['api_key'] ?? '');
 
-// If no new key submitted, pull the stored one
 if (empty($apiKey)) {
     require_once '../config/db.php';
     $apiKey = $pdo->query("SELECT setting_value FROM system_settings WHERE setting_key='brevo_api_key'")->fetchColumn() ?? '';

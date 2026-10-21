@@ -13,9 +13,7 @@ $admin_name = $_SESSION['admin_name'];
 $success = '';
 $error = '';
 
-// Confirm walk-in payment
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // CSRF verification
     if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
         http_response_code(403);
         die('Security check failed. Please go back, refresh the page, and try again.');
@@ -23,7 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $request_id = intval($_POST['request_id'] ?? 0);
 
-    // Fetch current status for audit history
     $curStmt = $pdo->prepare("SELECT request_status FROM requests WHERE id = ?");
     $curStmt->execute([$request_id]);
     $curReq = $curStmt->fetch();
@@ -39,7 +36,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $success = "Walk-in payment confirmed successfully.";
 }
 
-// Fetch walk-in requests
 $walkins = $pdo->query("
     SELECT r.*, u.first_name, u.last_name, u.student_number, u.course, u.mobile_number,
            GROUP_CONCAT(d.document_name SEPARATOR ', ') as documents
@@ -202,7 +198,6 @@ $walkins = $pdo->query("
     </div>
 </div>
 
-<!-- CONFIRM MODAL -->
 <div class="modal fade" id="confirmModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">

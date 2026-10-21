@@ -10,38 +10,13 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
 
 $admin_name = $_SESSION['admin_name'];
 
-// Summary counts
 $total           = $pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
 $pending         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Pending'")->fetchColumn();
 $processing      = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Processing'")->fetchColumn();
 $ready           = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
 $claimed         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
-$walkin          = $pdo->query("SELECT COUNT(*) FROM requests WHERE bank_slip_path = 'walkin' AND payment_status = 'Pending Verification'")->fetchColumn();
-$unpaid          = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Unpaid'")->fetchColumn();
 $pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Pending Verification'")->fetchColumn();
 $total_students  = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-$total_admins    = $pdo->query("SELECT COUNT(*) FROM admins WHERE role = 'admin'")->fetchColumn();
-$total_docs      = $pdo->query("SELECT COUNT(*) FROM documents WHERE is_active = 1")->fetchColumn();
-$requests_today  = $pdo->query("SELECT COUNT(*) FROM requests WHERE DATE(date_filed) = CURDATE()")->fetchColumn();
-
-// Turnaround time and SLA metrics
-$avg_tat = $pdo->query("
-    SELECT ROUND(AVG(DATEDIFF(COALESCE(date_released, updated_at), date_filed)), 1)
-    FROM requests
-    WHERE request_status IN ('Claimed', 'Ready for Pickup')
-")->fetchColumn();
-$avg_tat = ($avg_tat !== null && $avg_tat !== false) ? $avg_tat : 0;
-
-$sla_stats = $pdo->query("
-    SELECT
-        COUNT(*) as total_with_target,
-        SUM(CASE WHEN DATE(COALESCE(date_released, updated_at)) <= tentative_release_date THEN 1 ELSE 0 END) as on_time
-    FROM requests
-    WHERE request_status IN ('Claimed', 'Ready for Pickup') AND tentative_release_date IS NOT NULL
-")->fetch();
-$sla_rate = ($sla_stats && $sla_stats['total_with_target'] > 0)
-    ? round(($sla_stats['on_time'] / $sla_stats['total_with_target']) * 100)
-    : 100;
 
 $overdue_count = $pdo->query("
     SELECT COUNT(*) FROM requests
@@ -50,13 +25,6 @@ $overdue_count = $pdo->query("
       AND tentative_release_date < CURDATE()
 ")->fetchColumn();
 
-$due_today_count = $pdo->query("
-    SELECT COUNT(*) FROM requests
-    WHERE request_status IN ('Pending', 'Processing')
-      AND tentative_release_date = CURDATE()
-")->fetchColumn();
-
-// Recent requests
 $recent = $pdo->query("
     SELECT r.*, u.first_name, u.last_name,
            GROUP_CONCAT(d.document_name SEPARATOR ', ') as documents
@@ -69,7 +37,6 @@ $recent = $pdo->query("
     LIMIT 5
 ")->fetchAll();
 
-// Recent logs
 $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5")->fetchAll();
 ?>
 <!DOCTYPE html>
@@ -155,7 +122,6 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
 
     <div class="page-content">
 
-        <!-- ROW 1 -->
         <div class="summary-grid">
             <div class="summary-card card-red">
                 <div class="card-icon"><i class="fas fa-file-alt"></i></div>
@@ -175,64 +141,54 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
             </div>
         </div>
 
-        <!-- ROW 2 -->
         <div class="summary-grid">
             <div class="summary-card card-dark">
                 <div class="card-icon"><i class="fas fa-box"></i></div>
                 <div><div class="card-num"><?= $claimed ?></div><div class="card-label">Claimed</div></div>
             </div>
-            <div class="summary-card card-yellow">
-                <div class="card-icon"><i class="fas fa-walking"></i></div>
-                <div><div class="card-num"><?= $walkin ?></div><div class="card-label">Walk-in Pending</div></div>
-            </div>
             <div class="summary-card card-purple">
                 <div class="card-icon"><i class="fas fa-hourglass-half"></i></div>
                 <div><div class="card-num"><?= $pending_payment ?></div><div class="card-label">Pending Verification</div></div>
             </div>
-            <div class="summary-card card-teal">
-                <div class="card-icon"><i class="fas fa-exclamation-circle"></i></div>
-                <div><div class="card-num"><?= $unpaid ?></div><div class="card-label">Unpaid</div></div>
-            </div>
-        </div>
-
-        <!-- ROW 3 -->
-        <div class="summary-grid">
             <div class="summary-card card-navy">
                 <div class="card-icon"><i class="fas fa-user-graduate"></i></div>
                 <div><div class="card-num"><?= $total_students ?></div><div class="card-label">Registered Students</div></div>
-            </div>
-            <div class="summary-card card-pink">
-                <div class="card-icon"><i class="fas fa-user-shield"></i></div>
-                <div><div class="card-num"><?= $total_admins ?></div><div class="card-label">Admin Accounts</div></div>
-            </div>
-            <div class="summary-card card-gray">
-                <div class="card-icon"><i class="fas fa-file-invoice"></i></div>
-                <div><div class="card-num"><?= $total_docs ?></div><div class="card-label">Active Documents</div></div>
-            </div>
-            <div class="summary-card card-orange">
-                <div class="card-icon"><i class="fas fa-calendar-day"></i></div>
-                <div><div class="card-num"><?= $requests_today ?></div><div class="card-label">Requests Today</div></div>
-            </div>
-        </div>
-
-        <!-- SLA & PERFORMANCE METRICS -->
-        <div class="summary-grid">
-            <div class="summary-card" style="border-left-color: #2c3e50;">
-                <div class="card-icon" style="background: #2c3e50;"><i class="fas fa-stopwatch"></i></div>
-                <div><div class="card-num"><?= $avg_tat ?> <span style="font-size:12px; font-weight:normal; color:#888;">days</span></div><div class="card-label">Avg. Turnaround Time</div></div>
-            </div>
-            <div class="summary-card" style="border-left-color: #27ae60;">
-                <div class="card-icon" style="background: #27ae60;"><i class="fas fa-award"></i></div>
-                <div><div class="card-num"><?= $sla_rate ?>%</div><div class="card-label">SLA Compliance Rate</div></div>
-            </div>
-            <div class="summary-card" style="border-left-color: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;">
-                <div class="card-icon" style="background: <?= $due_today_count > 0 ? '#e67e22' : '#95a5a6' ?>;"><i class="fas fa-calendar-check"></i></div>
-                <div><div class="card-num"><?= $due_today_count ?></div><div class="card-label">Requests Due Today</div></div>
             </div>
             <div class="summary-card" style="border-left-color: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;">
                 <div class="card-icon" style="background: <?= $overdue_count > 0 ? '#c0392b' : '#27ae60' ?>;"><i class="fas <?= $overdue_count > 0 ? 'fa-exclamation-triangle' : 'fa-check' ?>"></i></div>
                 <div><div class="card-num"><?= $overdue_count ?></div><div class="card-label">Overdue Target Date</div></div>
             </div>
+        </div>
+
+        <div class="summary-grid" style="margin-bottom:16px;">
+            <a href="reports.php" style="text-decoration:none; grid-column: span 1;">
+                <div class="summary-card" style="border-left-color:#1a237e; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
+                    <div class="card-icon" style="background:#1a237e;"><i class="fas fa-chart-bar"></i></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">Reports & Analytics</div><div class="card-label">View detailed reports</div></div>
+                    <i class="fas fa-arrow-right ms-auto" style="color:#1a237e; font-size:14px;"></i>
+                </div>
+            </a>
+            <a href="manage_requests.php" style="text-decoration:none; grid-column: span 1;">
+                <div class="summary-card" style="border-left-color:#e67e22; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
+                    <div class="card-icon" style="background:#e67e22;"><i class="fas fa-file-alt"></i></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">Manage Requests</div><div class="card-label">View & update all requests</div></div>
+                    <i class="fas fa-arrow-right ms-auto" style="color:#e67e22; font-size:14px;"></i>
+                </div>
+            </a>
+            <a href="system_logs.php" style="text-decoration:none; grid-column: span 1;">
+                <div class="summary-card" style="border-left-color:#555; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
+                    <div class="card-icon" style="background:#555;"><i class="fas fa-history"></i></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">System Logs</div><div class="card-label">Full audit trail</div></div>
+                    <i class="fas fa-arrow-right ms-auto" style="color:#555; font-size:14px;"></i>
+                </div>
+            </a>
+            <a href="export.php" style="text-decoration:none; grid-column: span 1;">
+                <div class="summary-card" style="border-left-color:#27ae60; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
+                    <div class="card-icon" style="background:#27ae60;"><i class="fas fa-file-export"></i></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">Export Data</div><div class="card-label">Download Excel & PDF</div></div>
+                    <i class="fas fa-arrow-right ms-auto" style="color:#27ae60; font-size:14px;"></i>
+                </div>
+            </a>
         </div>
 
         <?php if ($overdue_count > 0): ?>
@@ -246,7 +202,6 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
         <?php endif; ?>
 
         <div class="two-col">
-            <!-- RECENT REQUESTS -->
             <div class="section-card">
                 <div class="section-header">
                     <span><i class="fas fa-history me-2" style="color:var(--pup-red);"></i>Recent Requests</span>
@@ -285,7 +240,6 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
                 </div>
             </div>
 
-            <!-- RECENT LOGS -->
             <div class="section-card">
                 <div class="section-header">
                     <span><i class="fas fa-history me-2" style="color:var(--sa-color);"></i>Recent System Logs</span>

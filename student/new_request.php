@@ -4,7 +4,6 @@ require_once '../config/db.php';
 require_once '../includes/release_date.php';
 require_once 'csrf.php';
 
-// Session timeout — 10 minutes
 if (isset($_SESSION['user_id']) && isset($_SESSION['last_activity'])) {
     if (time() - $_SESSION['last_activity'] > 600) {
         session_unset();
@@ -22,7 +21,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
-// Wave 4: Block new requests if account pending verification
+// Block new requests if account pending verification
 $verification_check = $pdo->prepare("SELECT verification_status FROM users WHERE id = ?");
 $verification_check->execute([$user_id]);
 $user_check = $verification_check->fetch();
@@ -32,7 +31,6 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
 
-// Fetch active documents grouped by category
 $stmt     = $pdo->query("SELECT * FROM documents WHERE is_active = 1 ORDER BY category, document_name");
 $all_docs = $stmt->fetchAll();
 
@@ -50,7 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $raw_purpose    = trim($_POST['purpose'] ?? '');
     $purpose_other  = trim($_POST['purpose_other'] ?? '');
     $purpose        = $raw_purpose;
-    // Append Others free-text to purpose
     if ($raw_purpose === 'Others') {
         $purpose = !empty($purpose_other) ? 'Others: ' . $purpose_other : '';
     }
@@ -59,7 +56,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $quantities     = $_POST['quantities'] ?? [];
     $allowed_methods = ['Walk-in (Cashier)', 'Walk-in (Bank Slip)'];
 
-    // Validate
     if ($blocked_for_verification) {
         $error = "Your account is pending approval. You cannot submit new requests yet.";
     } elseif (empty($raw_purpose)) {
@@ -85,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         foreach ($doc_ids as $doc_id) {
             $doc_id = intval($doc_id);
-            $qty    = min(10, max(1, intval($quantities[$doc_id] ?? 1)));
+            $qty    = min(20, max(1, intval($quantities[$doc_id] ?? 1)));
             $stmt   = $pdo->prepare("SELECT * FROM documents WHERE id = ? AND is_active = 1");
             $stmt->execute([$doc_id]);
             $doc = $stmt->fetch();
@@ -93,7 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $subtotal  = $doc['price'] * $qty;
                 $total    += $subtotal;
                 $items[]   = ['doc' => $doc, 'qty' => $qty, 'subtotal' => $subtotal];
-                // Use processing_max_days, fallback processing_days
                 $doc_max = intval($doc['processing_max_days'] ?? $doc['processing_days'] ?? 5);
                 if ($doc_max > $max_days) $max_days = $doc_max;
             }
@@ -102,7 +97,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Release date from slowest document
         $tentative_release_date = calculateReleaseDate($max_days > 0 ? $max_days : 5);
 
-        // Insert request
         $stmt = $pdo->prepare("
             INSERT INTO requests
                 (control_number, user_id, purpose, payment_method, total_amount, tentative_release_date)
@@ -111,7 +105,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$control_number, $user_id, $purpose, $payment_method, $total, $tentative_release_date]);
         $request_id = $pdo->lastInsertId();
 
-        // Insert request items
         foreach ($items as $item) {
             $pdo->prepare("
                 INSERT INTO request_items (request_id, document_id, quantity, unit_price, subtotal)
@@ -125,12 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
         }
 
-        // Log request creation to history (Wave 3)
+        // Log request creation to history
         $student_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
         $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
             ->execute([$request_id, null, 'Pending', $student_name ?: 'Student', 'Request submitted by student']);
 
-        // Redirect to feedback if not yet submitted, otherwise show success
         $fb_check = $pdo->prepare("SELECT id FROM feedback WHERE user_id = ?");
         $fb_check->execute([$user_id]);
         if (!$fb_check->fetch()) {
@@ -200,7 +192,6 @@ $purposes = [
         .form-control, .form-select { font-size: 13px; border-radius: 4px; border: 1px solid #ccc; padding: 7px 10px; }
         .form-control:focus, .form-select:focus { border-color: var(--pup-red); box-shadow: 0 0 0 2px rgba(109,26,26,0.12); }
 
-        /* Payment method cards */
         .payment-options { display: flex; gap: 12px; flex-wrap: wrap; }
         .payment-option { flex: 1; min-width: 180px; }
         .payment-option input[type="radio"] { display: none; }
@@ -219,7 +210,6 @@ $purposes = [
         }
         .payment-option input[type="radio"]:checked + label i { color: var(--pup-red); }
 
-        /* Category tabs */
         .doc-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
         .doc-tab-btn {
             background: #f0f0f0; border: 1px solid #ccc; color: #555;
@@ -228,7 +218,6 @@ $purposes = [
         }
         .doc-tab-btn:hover, .doc-tab-btn.active { background: var(--pup-red); color: white; border-color: var(--pup-red); }
 
-        /* Document table */
         .doc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .doc-table thead tr { background: #e8e8e8; }
         .doc-table th { padding: 9px 12px; font-weight: 600; color: #333; border: 1px solid #ddd; font-size: 12px; }
@@ -242,7 +231,6 @@ $purposes = [
         .doc-category { display: none; }
         .doc-category.active { display: block; }
 
-        /* Totals */
         .totals-table { width: 100%; font-size: 13px; }
         .totals-table td { padding: 6px 12px; }
         .totals-table .total-label { text-align: right; color: #555; width: 70%; }
@@ -261,12 +249,32 @@ $purposes = [
         .footer-pup { background: #f8f8f8; border-top: 1px solid #ddd; padding: 12px 20px; text-align: center; font-size: 12px; color: #666; margin-top: 20px; }
         .footer-pup a { color: var(--pup-red); text-decoration: none; }
 
+        .scroll-hint { display: none; font-size: 11px; color: #aaa; text-align: center; margin-bottom: 4px; }
+
+        @media (max-width: 600px) {
+            .doc-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .doc-table { min-width: 480px; }
+            .doc-table th, .doc-table td { font-size: 12px; padding: 6px 8px; }
+            .scroll-hint { display: block; }
+            .payment-options { flex-direction: column; }
+            .payment-option { min-width: 100% !important; }
+            .doc-tabs { flex-wrap: wrap; }
+            .content-wrapper { padding: 0 8px 40px; }
+        }
+        .tabs-bar .nav-tabs {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .tabs-bar .nav-tabs::-webkit-scrollbar { display: none; }
+        .tabs-bar .nav-link { white-space: nowrap; }
+
         .success-box { background: #eaf4e8; border: 1px solid #b8ddb4; border-radius: 6px; padding: 24px; text-align: center; }
         .success-box h4 { color: #2d6a27; margin-bottom: 8px; }
         .success-box p { color: #555; font-size: 13px; }
         .success-box .control-num { font-size: 20px; font-weight: 700; color: var(--pup-red); margin: 10px 0; }
 
-        /* Order Summary modal */
         .modal-header { background: var(--pup-red); color: white; }
         .modal-header .btn-close { filter: invert(1); }
         .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -277,7 +285,6 @@ $purposes = [
 </head>
 <body>
 
-<!-- NAVBAR -->
 <nav class="navbar-pup">
     <a href="index.php" class="brand">
         <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
@@ -300,7 +307,6 @@ $purposes = [
     </div>
 </nav>
 
-<!-- TABS -->
 <div class="tabs-bar">
     <ul class="nav nav-tabs">
         <li class="nav-item"><a class="nav-link" href="index.php"><i class="fas fa-user"></i> Profile</a></li>
@@ -310,7 +316,6 @@ $purposes = [
     </ul>
 </div>
 
-<!-- CONTENT -->
 <div class="content-wrapper">
 
     <?php if (!empty($error)): ?>
@@ -350,7 +355,6 @@ $purposes = [
             <div class="section-header">New Request</div>
             <div class="section-body">
 
-                <!-- Student Info (read only) -->
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <label class="form-label">Program/Course</label>
@@ -366,7 +370,6 @@ $purposes = [
                     </div>
                 </div>
 
-                <!-- Purpose -->
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <label class="form-label">Purpose of Request <span style="color:var(--pup-red);">*</span></label>
@@ -388,8 +391,94 @@ $purposes = [
                     </div>
                 </div>
 
-                <!-- Payment Method -->
-                <div class="mb-4">
+                <div class="mb-2">
+                    <label class="form-label">
+                        Type of Document <span style="color:var(--pup-red);">*</span>
+                        <span style="font-weight:400; color:#888;">(Choose at least 1)</span>
+                    </label>
+                </div>
+
+                <div class="doc-tabs">
+                    <?php $first = true; foreach ($categories as $cat => $docs): ?>
+                        <button type="button"
+                            class="doc-tab-btn <?= $first ? 'active' : '' ?>"
+                            onclick="showCategory('<?= htmlspecialchars(str_replace("'", "\\'", $cat)) ?>', this)">
+                            <?= htmlspecialchars($cat) ?>
+                        </button>
+                    <?php $first = false; endforeach; ?>
+                </div>
+
+                <p class="hint-text">* Processing Time may vary depending on request load, number of documents requested, and year of admission.</p>
+                <p class="hint-text">** Price may change without prior notice. The Office may request additional payment when needed.</p>
+
+                <?php $first = true; foreach ($categories as $cat => $docs): ?>
+                <div class="doc-category <?= $first ? 'active' : '' ?>"
+                    id="cat-<?= htmlspecialchars(str_replace(' ', '_', $cat)) ?>">
+                    <p class="scroll-hint"><i class="fas fa-arrows-alt-h me-1"></i>Scroll to see all columns</p>
+                    <div class="doc-table-wrapper">
+                    <table class="doc-table">
+                        <thead>
+                            <tr>
+                                <th style="width:30px;"></th>
+                                <th>Document (click to select)</th>
+                                <th style="width:160px;">Processing Time*</th>
+                                <th style="width:80px;">Quantity</th>
+                                <th style="width:100px;">Price**</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($docs as $doc): ?>
+                            <tr onclick="rowClickDoc(<?= $doc['id'] ?>)" style="cursor:pointer;">
+                                <td style="text-align:center;">
+                                    <input type="checkbox" name="doc_ids[]"
+                                        value="<?= $doc['id'] ?>"
+                                        id="doc_<?= $doc['id'] ?>"
+                                        onclick="event.stopPropagation(); toggleDoc(<?= $doc['id'] ?>)">
+                                </td>
+                                <td><?= htmlspecialchars($doc['document_name']) ?></td>
+                                <td>
+<?php
+$min = intval($doc['processing_min_days'] ?? $doc['processing_days'] ?? 1);
+$max = intval($doc['processing_max_days'] ?? $doc['processing_days'] ?? 1);
+echo $min === $max
+    ? $min . ' working day' . ($min > 1 ? 's' : '')
+    : $min . '–' . $max . ' working days';
+?>
+</td>
+                                <td>
+                                    <input type="number" name="quantities[<?= $doc['id'] ?>]"
+                                        id="qty_<?= $doc['id'] ?>"
+                                        class="qty-input" value="1" min="1" max="20"
+                                        disabled
+                                        onclick="event.stopPropagation()"
+                                        oninput="validateQty(this); updateTotal();">
+                                </td>
+                                <td style="text-align:right;">
+                                    ₱ <span id="price_<?= $doc['id'] ?>"><?= number_format($doc['price'], 2) ?></span>
+                                    <input type="hidden" id="unitprice_<?= $doc['id'] ?>" value="<?= $doc['price'] ?>">
+                                    <input type="hidden" id="docname_<?= $doc['id'] ?>" value="<?= htmlspecialchars($doc['document_name']) ?>">
+                                    <input type="hidden" id="maxdays_<?= $doc['id'] ?>" value="<?= intval($doc['processing_max_days'] ?? $doc['processing_days'] ?? 5) ?>">
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    </div><!-- end doc-table-wrapper -->
+                </div>
+                <?php $first = false; endforeach; ?>
+
+                <div class="mt-4">
+                    <table class="totals-table">
+                        <tr class="grand-total">
+                            <td class="total-label" style="font-weight:700;">TOTAL:</td>
+                            <td class="total-value" style="font-size:15px; color:var(--pup-red);">
+                                ₱ <span id="grandTotal">0.00</span>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class="mb-4 mt-4">
                     <label class="form-label">Payment Method <span style="color:var(--pup-red);">*</span></label>
                     <div class="payment-options">
                         <div class="payment-option">
@@ -413,93 +502,6 @@ $purposes = [
                     </div>
                 </div>
 
-                <!-- Document Type Tabs -->
-                <div class="mb-2">
-                    <label class="form-label">
-                        Type of Document <span style="color:var(--pup-red);">*</span>
-                        <span style="font-weight:400; color:#888;">(Choose at least 1)</span>
-                    </label>
-                </div>
-
-                <div class="doc-tabs">
-                    <?php $first = true; foreach ($categories as $cat => $docs): ?>
-                        <button type="button"
-                            class="doc-tab-btn <?= $first ? 'active' : '' ?>"
-                            onclick="showCategory('<?= htmlspecialchars(str_replace("'", "\\'", $cat)) ?>', this)">
-                            <?= htmlspecialchars($cat) ?>
-                        </button>
-                    <?php $first = false; endforeach; ?>
-                </div>
-
-                <p class="hint-text">* Processing Time may vary depending on request load, number of documents requested, and year of admission.</p>
-                <p class="hint-text">** Price may change without prior notice. The Office may request additional payment when needed.</p>
-
-                <!-- Document Tables per Category -->
-                <?php $first = true; foreach ($categories as $cat => $docs): ?>
-                <div class="doc-category <?= $first ? 'active' : '' ?>"
-                    id="cat-<?= htmlspecialchars(str_replace(' ', '_', $cat)) ?>">
-                    <table class="doc-table">
-                        <thead>
-                            <tr>
-                                <th style="width:30px;"></th>
-                                <th>Document (click to select)</th>
-                                <th style="width:160px;">Processing Time*</th>
-                                <th style="width:80px;">Quantity</th>
-                                <th style="width:100px;">Price**</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($docs as $doc): ?>
-                            <tr onclick="toggleDoc(<?= $doc['id'] ?>)" style="cursor:pointer;">
-                                <td style="text-align:center;">
-                                    <input type="checkbox" name="doc_ids[]"
-                                        value="<?= $doc['id'] ?>"
-                                        id="doc_<?= $doc['id'] ?>"
-                                        onclick="event.stopPropagation(); toggleDoc(<?= $doc['id'] ?>)">
-                                </td>
-                                <td><?= htmlspecialchars($doc['document_name']) ?></td>
-                                <td>
-<?php
-$min = intval($doc['processing_min_days'] ?? $doc['processing_days'] ?? 1);
-$max = intval($doc['processing_max_days'] ?? $doc['processing_days'] ?? 1);
-echo $min === $max
-    ? $min . ' working day' . ($min > 1 ? 's' : '')
-    : $min . '–' . $max . ' working days';
-?>
-</td>
-                                <td>
-                                    <input type="number" name="quantities[<?= $doc['id'] ?>]"
-                                        id="qty_<?= $doc['id'] ?>"
-                                        class="qty-input" value="1" min="1" max="10"
-                                        disabled
-                                        onclick="event.stopPropagation()"
-                                        oninput="validateQty(this); updateTotal();">
-                                </td>
-                                <td style="text-align:right;">
-                                    ₱ <span id="price_<?= $doc['id'] ?>"><?= number_format($doc['price'], 2) ?></span>
-                                    <input type="hidden" id="unitprice_<?= $doc['id'] ?>" value="<?= $doc['price'] ?>">
-                                    <input type="hidden" id="docname_<?= $doc['id'] ?>" value="<?= htmlspecialchars($doc['document_name']) ?>">
-                                    <input type="hidden" id="maxdays_<?= $doc['id'] ?>" value="<?= intval($doc['processing_max_days'] ?? $doc['processing_days'] ?? 5) ?>">
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php $first = false; endforeach; ?>
-
-                <!-- Totals -->
-                <div class="mt-4">
-                    <table class="totals-table">
-                        <tr class="grand-total">
-                            <td class="total-label" style="font-weight:700;">TOTAL:</td>
-                            <td class="total-value" style="font-size:15px; color:var(--pup-red);">
-                                ₱ <span id="grandTotal">0.00</span>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
             </div>
         </div>
 
@@ -515,13 +517,12 @@ echo $min === $max
 
 </div>
 
-<!-- FOOTER -->
 <div class="footer-pup">
     © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus |
-    <a href="#">Terms of Use</a> | <a href="#">Privacy Statement</a>
+    <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms of Use</a> |
+    <a href="#" data-bs-toggle="modal" data-bs-target="#privacyModal">Privacy Statement</a>
 </div>
 
-<!-- ORDER SUMMARY MODAL -->
 <div class="modal fade" id="orderSummaryModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content">
@@ -589,7 +590,6 @@ echo $min === $max
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Category tab switching
     function showCategory(cat, btn) {
         document.querySelectorAll('.doc-category').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.doc-tab-btn').forEach(el => el.classList.remove('active'));
@@ -598,27 +598,32 @@ echo $min === $max
         btn.classList.add('active');
     }
 
-    // Validate and clamp quantity between 1 and 10
+    // Validate and clamp quantity between 1 and 20
     function validateQty(input) {
         let val = parseInt(input.value);
         if (isNaN(val) || val < 1) val = 1;
-        if (val > 10) val = 10;
+        if (val > 20) val = 20;
         input.value = val;
     }
 
-    // Toggle document checkbox + qty
+    // Row click: toggle checkbox then call toggleDoc
+    function rowClickDoc(docId) {
+        const cb = document.getElementById('doc_' + docId);
+        cb.checked = !cb.checked;
+        toggleDoc(docId);
+    }
+
+    // Toggle document checkbox + qty (reads actual checkbox state — no blind flip)
     function toggleDoc(docId) {
         const cb  = document.getElementById('doc_' + docId);
         const qty = document.getElementById('qty_' + docId);
-        cb.checked     = !cb.checked;
-        qty.disabled   = !cb.checked;
+        qty.disabled = !cb.checked;
         if (!cb.checked) {
             qty.value = 1;
         }
         updateTotal();
     }
 
-    // Recalculate total
     function updateTotal() {
         let total = 0;
         document.querySelectorAll('input[name="doc_ids[]"]').forEach(cb => {
@@ -628,14 +633,13 @@ echo $min === $max
                 const qtyInput = document.getElementById('qty_' + id);
                 let qty     = parseInt(qtyInput.value);
                 if (isNaN(qty) || qty < 1) qty = 1;
-                if (qty > 10) qty = 10;
+                if (qty > 20) qty = 20;
                 total += price * qty;
             }
         });
         document.getElementById('grandTotal').textContent = total.toFixed(2);
     }
 
-    // Open order summary modal
     function openOrderSummary() {
         const form        = document.getElementById('requestForm');
         const purposeSel  = form.querySelector('select[name="purpose"]');
@@ -643,7 +647,6 @@ echo $min === $max
         const otherInput  = document.getElementById('purposeOtherInput');
         const pmRadio     = form.querySelector('input[name="payment_method"]:checked');
 
-        // Validate before showing modal
         if (!purpose) {
             alert('Please select a purpose for your request.');
             return;
@@ -679,7 +682,7 @@ echo $min === $max
             const qtyInput = document.getElementById('qty_' + id);
             let qty        = parseInt(qtyInput.value);
             if (isNaN(qty) || qty < 1) qty = 1;
-            if (qty > 10) qty = 10;
+            if (qty > 20) qty = 20;
             const subtotal = price * qty;
             const docMax   = parseInt(document.getElementById('maxdays_' + id).value) || 5;
             total   += subtotal;
@@ -692,7 +695,6 @@ echo $min === $max
             </tr>`;
         });
 
-        // Calculate estimated release date (working days, skip weekends)
         const releaseDate = addWorkingDays(maxDays);
         const releaseFmt  = releaseDate.toLocaleDateString('en-PH', {
             year: 'numeric', month: 'long', day: 'numeric'
@@ -704,7 +706,6 @@ echo $min === $max
         document.getElementById('summaryItems').innerHTML         = rows;
         document.getElementById('summaryTotal').textContent       = total.toFixed(2);
 
-        // Dynamic notice based on payment method
         const notice = paymentMethod === 'Walk-in (Cashier)'
             ? '<i class="fas fa-info-circle me-1"></i> You selected <strong>Walk-in (Cashier)</strong>. Please proceed to the PUP Biñan Cashier\'s Office to settle payment after submitting.'
             : '<i class="fas fa-info-circle me-1"></i> You selected <strong>Walk-in (Bank Slip)</strong>. After submitting, upload your bank deposit slip in the Requests tab as proof of payment.';
@@ -722,20 +723,17 @@ echo $min === $max
             const dow = date.getDay(); // 0=Sun, 6=Sat
             if (dow !== 0 && dow !== 6) added++;
         }
-        // Shift off weekends
         while (date.getDay() === 0 || date.getDay() === 6) {
             date.setDate(date.getDate() + 1);
         }
         return date;
     }
 
-    // Confirm and submit form
     function confirmSubmit() {
         bootstrap.Modal.getInstance(document.getElementById('orderSummaryModal')).hide();
         document.getElementById('requestForm').submit();
     }
 
-    // Show/hide "Others" free-text box
     document.querySelector('select[name="purpose"]').addEventListener('change', function () {
         const box = document.getElementById('othersBox');
         const inp = document.getElementById('purposeOtherInput');
@@ -756,5 +754,6 @@ echo $min === $max
         }
     })();
 </script>
+<?php include '../includes/legal_modals.php'; ?>
 </body>
 </html>

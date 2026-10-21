@@ -17,7 +17,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
 }
 
-// Add admin
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
     $first_name = trim($_POST['first_name'] ?? '');
     $last_name  = trim($_POST['last_name'] ?? '');
@@ -57,7 +56,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'add') {
     }
 }
 
-// Toggle status
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'toggle') {
     $id         = intval($_POST['admin_id']);
     $new_status = $_POST['new_status'];
@@ -67,7 +65,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'toggle') {
     $success = "Admin status updated.";
 }
 
-// Reset password
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_POST['action'] === 'reset_password') {
     $id       = intval($_POST['admin_id']);
     $new_pass = $_POST['new_password'] ?? '';
@@ -177,7 +174,6 @@ $current_page = 'admins';
             <div class="alert alert-danger py-2 mb-3" style="font-size:13px;"><i class="fas fa-exclamation-circle me-1"></i> <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
 
-        <!-- ADD ADMIN FORM -->
         <div class="section-card">
             <div class="section-header">Add New Admin Account</div>
             <div class="section-body">
@@ -223,7 +219,6 @@ $current_page = 'admins';
             </div>
         </div>
 
-        <!-- ADMIN LIST -->
         <div class="section-card">
             <div class="section-header">
                 Admin Accounts (<?= count($admins) ?>)
@@ -257,7 +252,6 @@ $current_page = 'admins';
                             <td><?= date('m/d/Y', strtotime($a['created_at'])) ?></td>
                             <td style="text-align:center;">
                                 <div style="display:flex; gap:5px; justify-content:center;">
-                                    <!-- Toggle Status -->
                                     <form method="POST" style="display:inline;">
                                         <?= csrf_field() ?>
                                         <input type="hidden" name="action" value="toggle">
@@ -268,7 +262,6 @@ $current_page = 'admins';
                                             <?= $a['status'] === 'Active' ? 'Deactivate' : 'Activate' ?>
                                         </button>
                                     </form>
-                                    <!-- Reset Password -->
                                     <button class="btn-sm-action btn-reset"
                                         onclick="openReset(<?= $a['id'] ?>, '<?= htmlspecialchars($a['name']) ?>')">
                                         <i class="fas fa-key"></i> Reset Password
@@ -290,7 +283,6 @@ $current_page = 'admins';
     </div>
 </div>
 
-<!-- RESET PASSWORD MODAL -->
 <div class="modal fade" id="resetModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
