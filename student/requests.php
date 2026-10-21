@@ -87,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
             try {
                 $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
                     'folder'          => 'edocuserve/slips',
-                    'type'            => 'authenticated',
+                    'type'            => 'upload',
                     'public_id'       => $publicId,
                     'resource_type'   => 'image',
                     'allowed_formats' => ['jpg', 'jpeg'],

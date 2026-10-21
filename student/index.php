@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
             try {
                 $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
                     'folder'          => 'edocuserve/profiles/students',
-                    'type'            => 'authenticated',
+                    'type'            => 'upload',
                     'public_id'       => 'student_' . $user_id,
                     'resource_type'   => 'image',
                     'overwrite'       => true,

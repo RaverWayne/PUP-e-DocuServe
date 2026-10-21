@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
                         'folder'          => 'edocuserve/profiles/admins',
-                        'type'            => 'authenticated',
+                        'type'            => 'upload',
                         'public_id'       => 'admin_' . $admin_id,
                         'resource_type'   => 'image',
                         'overwrite'       => true,
