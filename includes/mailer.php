@@ -163,11 +163,11 @@ function emailRequestStatusUpdate(
     ?string $releaseDate
 ): string {
     $statusColors = [
-        'Processing'      => '#3498db',
-        'Ready for Pickup'=> '#27ae60',
-        'Claimed'         => '#2c3e50',
-        'Cancelled'       => '#e74c3c',
-        'Pending'         => '#95a5a6',
+        'Being Processed'  => '#3498db',
+        'Ready for Pickup' => '#27ae60',
+        'Claimed'          => '#2c3e50',
+        'Cancelled'        => '#e74c3c',
+        'Submitted'        => '#95a5a6',
     ];
     $statusColor = $statusColors[$newStatus] ?? '#6D1A1A';
 
@@ -238,6 +238,54 @@ function emailRequestStatusUpdate(
       </p>';
 
     return emailWrap('Request Status Update — ' . $controlNumber, $body);
+}
+
+// Template: Admin New Request Notification
+function emailAdminNewRequest(array $request, array $student): string
+{
+    $host = isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '';
+    $studentName = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? ''));
+    $docs = $request['documents'] ?? '';
+    $body = '
+      <h2 style="color:#1a237e;margin:0 0 16px;">New Document Request</h2>
+      <p style="color:#333;line-height:1.6;">A new student request has been submitted. Here are the details:</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;font-size:13px;">
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;width:180px;">Control Number:</td>
+            <td style="padding:6px 0;color:#333;font-weight:700;">' . htmlspecialchars($request['control_number'] ?? '') . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Student Name:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($studentName) . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Student Number:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($student['student_number'] ?? '') . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Documents:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($docs) . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Total Amount:</td>
+            <td style="padding:6px 0;color:#333;">&#8369;' . number_format((float)($request['total_amount'] ?? 0), 2) . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Payment Method:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($request['payment_method'] ?? '') . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Date Filed:</td>
+            <td style="padding:6px 0;color:#333;">' . date('F d, Y h:i A', strtotime($request['date_filed'] ?? 'now')) . '</td></tr>
+      </table>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="' . $host . '/edocuserve/admin/manage_requests.php" style="background:#1a237e;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">View Requests</a>
+      </div>';
+    return emailWrap('New Request — ' . ($request['control_number'] ?? ''), $body);
+}
+
+function notifyAdminsNewRequest(PDO $pdo, array $request, array $student): void
+{
+    try {
+        $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ('notify_on_new_request','notification_recipients')");
+        $cfg = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) $cfg[$row['setting_key']] = $row['setting_value'];
+        if (($cfg['notify_on_new_request'] ?? '1') === '0') return;
+        $raw = $cfg['notification_recipients'] ?? '';
+        if (trim($raw) === '') return;
+        $emails = array_filter(array_map('trim', preg_split('/[\s,;]+/', $raw)));
+        $html = emailAdminNewRequest($request, $student);
+        foreach ($emails as $email) sendMail($pdo, $email, '', 'New Request — ' . ($request['control_number'] ?? ''), $html);
+    } catch (\Throwable $e) {
+        error_log('[mailer] notifyAdminsNewRequest failed: ' . $e->getMessage());
+    }
 }
 
 // Template: Password Reset

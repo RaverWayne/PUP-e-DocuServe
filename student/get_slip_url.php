@@ -21,7 +21,7 @@ if ($request_id <= 0) {
 }
 
 // Verify the request belongs to this student
-$stmt = $pdo->prepare("SELECT bank_slip_path FROM requests WHERE id = ? AND user_id = ?");
+$stmt = $pdo->prepare("SELECT bank_slip_path, receipt_path FROM requests WHERE id = ? AND user_id = ?");
 $stmt->execute([$request_id, $_SESSION['user_id']]);
 $row = $stmt->fetch();
 
@@ -30,5 +30,7 @@ if (!$row) {
     exit();
 }
 
-$url = getSlipUrl($row['bank_slip_path']);
+$type = $_GET['type'] ?? 'proof'; // 'proof' → bank_slip_path, 'receipt' → receipt_path
+$path = ($type === 'receipt') ? $row['receipt_path'] : $row['bank_slip_path'];
+$url  = getSlipUrl($path);
 echo json_encode(['url' => $url]);

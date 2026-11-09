@@ -117,6 +117,7 @@ $search         = trim($_GET['search'] ?? '');
 $filter_course  = trim($_GET['course'] ?? '');
 $filter_year    = trim($_GET['year'] ?? '');
 $filter_vstatus = trim($_GET['vstatus'] ?? '');
+$sort           = trim($_GET['sort'] ?? 'oldest');
 
 $where  = ["verification_status != 'Deleted'"];
 $params = [];
@@ -141,7 +142,15 @@ if (!empty($filter_vstatus)) {
 
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-$stmt = $pdo->prepare("SELECT * FROM users $whereSQL ORDER BY last_name ASC");
+$sortOptions = [
+    'oldest' => 'created_at ASC, id ASC',
+    'newest' => 'created_at DESC, id DESC',
+    'az'     => 'last_name ASC, first_name ASC',
+    'za'     => 'last_name DESC, first_name DESC',
+];
+$orderBy = $sortOptions[$sort] ?? $sortOptions['oldest'];
+
+$stmt = $pdo->prepare("SELECT * FROM users $whereSQL ORDER BY $orderBy");
 $stmt->execute($params);
 $students = $stmt->fetchAll();
 
@@ -262,6 +271,13 @@ $current_page = 'students';
                         <?php foreach ($years as $y): ?>
                             <option value="<?= $y ?>" <?= $filter_year == $y ? 'selected' : '' ?>><?= $y ?></option>
                         <?php endforeach; ?>
+                    </select>
+
+                    <select name="sort">
+                        <option value="oldest" <?= $sort === 'oldest' ? 'selected' : '' ?>>First to Latest</option>
+                        <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>>Latest to First</option>
+                        <option value="az"     <?= $sort === 'az'     ? 'selected' : '' ?>>Name A to Z</option>
+                        <option value="za"     <?= $sort === 'za'     ? 'selected' : '' ?>>Name Z to A</option>
                     </select>
 
                     <button type="submit"><i class="fas fa-search me-1"></i>Filter</button>

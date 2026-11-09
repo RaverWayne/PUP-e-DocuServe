@@ -149,27 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="sidebar-brand">
-        <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
-        <div class="sidebar-brand-text">PUP e-DocuServe <span>Biñan Campus</span></div>
-    </div>
-    <div class="sidebar-role"><i class="fas fa-user-shield me-2"></i>Admin Panel</div>
-    <nav class="sidebar-nav">
-        <div class="nav-section">Main</div>
-        <a href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="manage_requests.php"><i class="fas fa-file-alt"></i> Manage Requests</a>
-        <a href="walkin_requests.php"><i class="fas fa-walking"></i> Walk-in Payments</a>
-        <div class="nav-section">Users</div>
-        <a href="students.php"><i class="fas fa-users"></i> Students</a>
-        <div class="nav-section">Account</div>
-        <a href="account_settings.php" class="active"><i class="fas fa-cog"></i> Account Settings</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
-        <div style="font-size:11px; color:#888;">Biñan Campus</div>
-    </div>
-</div>
+<?php $current_page = 'account'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">

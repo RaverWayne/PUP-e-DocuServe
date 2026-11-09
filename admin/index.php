@@ -12,16 +12,15 @@ $admin_id   = $_SESSION['admin_id'];
 $admin_name = $_SESSION['admin_name'];
 
 $total     = $pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
-$pending   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Pending'")->fetchColumn();
-$processing = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Processing'")->fetchColumn();
+$pending   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Submitted'")->fetchColumn();
+$processing = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Being Processed'")->fetchColumn();
 $ready     = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
 $claimed   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
-$pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Pending Verification'")->fetchColumn();
-$walkin    = $pdo->query("SELECT COUNT(*) FROM requests WHERE bank_slip_path = 'walkin' AND payment_status = 'Pending Verification'")->fetchColumn();
+$pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Submitted'")->fetchColumn();
 
 $overdue_count = $pdo->query("
     SELECT COUNT(*) FROM requests
-    WHERE request_status IN ('Pending', 'Processing')
+    WHERE request_status IN ('Submitted', 'Being Processed')
       AND tentative_release_date IS NOT NULL
       AND tentative_release_date < CURDATE()
 ")->fetchColumn();
@@ -192,38 +191,7 @@ $recent = $pdo->query("
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="sidebar-brand">
-        <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
-        <div class="sidebar-brand-text">
-            PUP e-DocuServe
-            <span>Biñan Campus</span>
-        </div>
-    </div>
-    <div class="sidebar-role"><i class="fas fa-user-shield me-2"></i>Admin Panel</div>
-    <nav class="sidebar-nav">
-        <div class="nav-section">Main</div>
-        <a href="index.php" class="active"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="manage_requests.php"><i class="fas fa-file-alt"></i> Manage Requests
-            <?php if ($pending > 0): ?>
-                <span class="badge bg-danger ms-auto"><?= $pending ?></span>
-            <?php endif; ?>
-        </a>
-        <a href="walkin_requests.php"><i class="fas fa-walking"></i> Walk-in Payments
-            <?php if ($walkin > 0): ?>
-                <span class="walkin-badge ms-auto"><?= $walkin ?></span>
-            <?php endif; ?>
-        </a>
-        <div class="nav-section">Users</div>
-        <a href="students.php"><i class="fas fa-users"></i> Students</a>
-        <div class="nav-section">Account</div>
-        <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
-        <div style="font-size:11px; color:#888;">Biñan Campus</div>
-    </div>
-</div>
+<?php $current_page = 'dashboard'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">
@@ -325,9 +293,9 @@ $recent = $pdo->query("
                             <td>
                                 <?php
                                 $pmap = [
-                                    'Unpaid'               => ['danger', '✗ Unpaid'],
-                                    'Pending Verification' => ['warning text-dark', '⏳ Pending'],
-                                    'Paid'                 => ['success', '✔ Paid'],
+                                    'Awaiting Payment'  => ['danger', '✗ Unpaid'],
+                                    'Payment Submitted' => ['warning text-dark', '⏳ Submitted'],
+                                    'Payment Verified'  => ['success', '✔ Verified'],
                                 ];
                                 $pb = $pmap[$r['payment_status']] ?? ['secondary', $r['payment_status']];
                                 ?>
@@ -339,8 +307,8 @@ $recent = $pdo->query("
                             <td>
                                 <?php
                                 $smap = [
-                                    'Pending'          => 'secondary',
-                                    'Processing'       => 'primary',
+                                    'Submitted'        => 'secondary',
+                                    'Being Processed'  => 'primary',
                                     'Ready for Pickup' => 'success',
                                     'Claimed'          => 'dark',
                                     'Cancelled'        => 'danger',

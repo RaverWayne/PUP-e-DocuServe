@@ -17,7 +17,7 @@ $total_range    = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE DATE(date_f
 $total_range->execute([$date_from, $date_to]);
 $total_range = $total_range->fetchColumn();
 
-$paid_range = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE payment_status = 'Paid' AND DATE(date_filed) BETWEEN ? AND ?");
+$paid_range = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Verified' AND DATE(date_filed) BETWEEN ? AND ?");
 $paid_range->execute([$date_from, $date_to]);
 $paid_range = $paid_range->fetchColumn();
 
@@ -250,7 +250,7 @@ $current_page = 'reports';
             </div>
             <div class="summary-card card-green">
                 <div class="card-num"><?= $paid_range ?></div>
-                <div class="card-label">Paid Requests</div>
+                <div class="card-label">Verified Requests</div>
             </div>
             <div class="summary-card card-blue">
                 <div class="card-num"><?= $claimed_range ?></div>
@@ -341,7 +341,7 @@ $current_page = 'reports';
                                 <td><?= date('g:i A', strtotime($req['time_filed'])) ?></td>
                                 <td>
                                     <?php
-                                    $pay_color = $req['payment_status'] === 'Paid' ? '#27ae60' : ($req['payment_status'] === 'Pending' ? '#f39c12' : '#95a5a6');
+                                    $pay_color = $req['payment_status'] === 'Payment Verified' ? '#27ae60' : ($req['payment_status'] === 'Payment Submitted' ? '#f39c12' : '#95a5a6');
                                     ?>
                                     <span style="display:inline-block; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600; color:white; background:<?= $pay_color ?>;">
                                         <?= htmlspecialchars($req['payment_status']) ?>
@@ -350,11 +350,11 @@ $current_page = 'reports';
                                 <td>
                                     <?php
                                     $status_color = [
-                                        'Pending' => '#95a5a6',
-                                        'Processing' => '#3498db',
+                                        'Submitted' => '#95a5a6',
+                                        'Being Processed' => '#3498db',
                                         'Ready for Pickup' => '#27ae60',
                                         'Claimed' => '#2c3e50',
-                                        'Rejected' => '#e74c3c'
+                                        'Cancelled' => '#e74c3c'
                                     ][$req['request_status']] ?? '#95a5a6';
                                     ?>
                                     <span style="display:inline-block; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600; color:white; background:<?= $status_color ?>;">

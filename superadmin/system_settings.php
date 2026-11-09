@@ -20,9 +20,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $section_keys = [
         'general'     => ['school_year', 'office_hours', 'office_contact', 'office_email', 'processing_notice'],
         'landing'     => ['landing_tagline', 'landing_advisory_title', 'landing_advisory_body', 'landing_howto_title', 'landing_howto_steps', 'landing_instructions_steps', 'landing_instructions_note'],
-        'bank'        => ['bank_name', 'bank_account_name', 'bank_account_number'],
+        'payment'     => ['bank_name', 'bank_account_name', 'bank_account_number', 'gcash_number'],
         'maintenance' => ['maintenance_mode'],
-        'email'       => ['smtp_from_name', 'smtp_from_email'],
         'legal'       => ['terms_of_use', 'privacy_statement'],
     ];
 
@@ -42,23 +41,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Special case: brevo_api_key only updates if not empty
-    if ($section === 'email' && !empty($_POST['brevo_api_key'])) {
-        $exists = $pdo->query("SELECT COUNT(*) FROM system_settings WHERE setting_key = 'brevo_api_key'")->fetchColumn();
-        if ($exists) {
-            $pdo->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = 'brevo_api_key'")
-                ->execute([$_POST['brevo_api_key']]);
+    // Special case: gcash_qr_image upload (Cloudinary + local fallback)
+    if ($section === 'payment' && isset($_FILES['gcash_qr_image']) && $_FILES['gcash_qr_image']['error'] === UPLOAD_ERR_OK) {
+        $file = $_FILES['gcash_qr_image'];
+        $allowed = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime  = $finfo->file($file['tmp_name']);
+        if (!isset($allowed[$ext]) || $mime !== $allowed[$ext] || $file['size'] > 10 * 1024 * 1024) {
+            $error = 'GCash QR must be JPG/PNG under 10MB.';
         } else {
-            $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('brevo_api_key', ?)")
-                ->execute([$_POST['brevo_api_key']]);
+            require_once '../includes/cloudinary.php';
+            $cloudinary = getCloudinary();
+            try {
+                if ($cloudinary !== null) {
+                    $res = $cloudinary->uploadApi()->upload($file['tmp_name'], [
+                        'folder' => 'edocuserve/payments', 'type' => 'upload',
+                        'public_id' => 'gcash_qr', 'resource_type' => 'image',
+                        'overwrite' => true, 'allowed_formats' => ['jpg', 'jpeg', 'png'],
+                    ]);
+                    $saved = $res['secure_url'];
+                } else {
+                    $dir = '../assets/uploads/';
+                    if (!is_dir($dir)) mkdir($dir, 0755, true);
+                    $saved = basename('gcash_qr_' . time() . '.' . $ext);
+                    move_uploaded_file($file['tmp_name'], $dir . $saved);
+                }
+                $ex = $pdo->query("SELECT COUNT(*) FROM system_settings WHERE setting_key='gcash_qr_path'")->fetchColumn();
+                if ($ex) $pdo->prepare("UPDATE system_settings SET setting_value=? WHERE setting_key='gcash_qr_path'")->execute([$saved]);
+                else $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('gcash_qr_path',?)")->execute([$saved]);
+            } catch (\Exception $e) { $error = 'Failed to upload GCash QR image.'; }
         }
     }
 
     if (!$error) {
         $sectionLabels = [
             'general' => 'General Information', 'landing' => 'Landing Page Content',
-            'bank' => 'Bank Payment Information', 'maintenance' => 'Maintenance Mode',
-            'email' => 'Email Notifications', 'legal' => 'Legal / Policy Pages',
+            'payment' => 'Payment Information', 'maintenance' => 'Maintenance Mode',
+            'legal' => 'Legal / Policy Pages',
         ];
         $sectionLabel = $sectionLabels[$section] ?? $section;
         $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role) VALUES (?, ?, ?, ?)")
@@ -232,11 +252,11 @@ $current_page = 'settings';
             </div>
         </form>
 
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <?= csrf_field() ?>
-            <input type="hidden" name="section" value="bank">
+            <input type="hidden" name="section" value="payment">
             <div class="section-card">
-                <div class="section-header"><i class="fas fa-university me-2" style="color:#27ae60;"></i>Bank Payment Information</div>
+                <div class="section-header"><i class="fas fa-wallet me-2" style="color:#27ae60;"></i>Payment Information</div>
                 <div class="section-body">
                     <div class="row g-3">
                         <div class="col-md-4">
@@ -252,7 +272,21 @@ $current_page = 'settings';
                             <input type="text" name="bank_account_number" class="form-control" value="<?= htmlspecialchars($settings['bank_account_number'] ?? '') ?>">
                         </div>
                         <div class="col-12 pt-2">
-                            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save Bank Information</button>
+                            <div style="font-weight:700; font-size:12px; border-top:1px solid #eee; padding-top:12px;">GCash Information</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">GCash Number</label>
+                            <input type="text" name="gcash_number" class="form-control" value="<?= htmlspecialchars($settings['gcash_number'] ?? '') ?>" placeholder="e.g. 09xx xxx xxxx">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">GCash QR Code <span style="font-weight:400; color:#888;">(JPG/PNG, max 10MB)</span></label>
+                            <input type="file" name="gcash_qr_image" class="form-control" accept=".jpg,.jpeg,.png">
+                            <?php if (!empty($settings['gcash_qr_path'])): ?>
+                                <div style="margin-top:6px;"><img src="<?= htmlspecialchars($settings['gcash_qr_path']) ?>" style="max-height:120px; border:1px solid #ddd; border-radius:6px;" alt="GCash QR"></div>
+                            <?php endif; ?>
+                        </div>
+                        <div class="col-12 pt-2">
+                            <button type="submit" class="btn-save"><i class="fas fa-save me-2"></i>Save Payment Information</button>
                         </div>
                     </div>
                 </div>
@@ -285,69 +319,6 @@ $current_page = 'settings';
                         <div class="col-12 pt-2">
                             <button type="submit" class="btn-save" style="background:#e74c3c;"><i class="fas fa-save me-2"></i>Save Maintenance Mode</button>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <form method="POST">
-            <?= csrf_field() ?>
-            <input type="hidden" name="section" value="email">
-            <div class="section-card">
-                <div class="section-header"><i class="fas fa-envelope me-2" style="color:#3498db;"></i>Email Notifications (Brevo API)</div>
-                <div class="section-body">
-                    <div style="font-size:12px; color:#888; margin-bottom:16px; padding:10px 14px; background:#f0f4ff; border-radius:6px; border-left:4px solid #3498db;">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Sends email through Brevo's HTTPS API (not SMTP), so it works on hosts like Railway that block outbound SMTP ports.
-                        Leave the API key blank to disable email sending without breaking other features.
-                        <br><strong>Where to get this:</strong> Brevo dashboard → <em>SMTP &amp; API</em> → <em>API keys &amp; MCP</em> tab → Generate API key.
-                        This is <strong>not</strong> the same as an SMTP key.
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-9">
-                            <label class="form-label">
-                                Brevo API Key
-                                <span style="font-weight:400; color:#888;">(leave blank to keep current)</span>
-                            </label>
-                            <div style="position:relative;">
-                                <input type="password" name="brevo_api_key" id="brevoApiKeyInput" class="form-control"
-                                    placeholder="<?= !empty($settings['brevo_api_key']) ? '••••••••••••' : 'xkeysib-...' ?>"
-                                    autocomplete="new-password">
-                                <i class="fas fa-eye" id="toggleBrevoKey"
-                                   style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:#aaa;font-size:13px;"></i>
-                            </div>
-                            <?php if (!empty($settings['brevo_api_key'])): ?>
-                                <div style="font-size:11px; color:#27ae60; margin-top:3px;">
-                                    <i class="fas fa-check-circle me-1"></i>API key is saved. Leave blank to keep it.
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                        <div class="col-md-3" style="display:flex; align-items:flex-end;">
-                            <button type="button" id="btnTestBrevo" class="btn-save w-100" style="background:#3498db; padding:7px 12px;">
-                                <i class="fas fa-plug me-1"></i> Test
-                            </button>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">From Name</label>
-                            <input type="text" name="smtp_from_name" class="form-control"
-                                value="<?= htmlspecialchars($settings['smtp_from_name'] ?? 'PUP e-DocuServe') ?>"
-                                placeholder="PUP e-DocuServe">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">From Email Address</label>
-                            <input type="email" name="smtp_from_email" class="form-control"
-                                value="<?= htmlspecialchars($settings['smtp_from_email'] ?? '') ?>"
-                                placeholder="noreply@pup.edu.ph">
-                            <div style="font-size:11px; color:#888; margin-top:3px;">
-                                Must be a verified sender in your Brevo account (Senders &amp; IP → Senders).
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="brevoTestResult" style="display:none; margin-top:14px;"></div>
-
-                    <div class="mt-3">
-                        <button type="submit" class="btn-save" style="background:#3498db;"><i class="fas fa-save me-2"></i>Save Email Settings</button>
                     </div>
                 </div>
             </div>
@@ -389,40 +360,3 @@ $current_page = 'settings';
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-document.getElementById('toggleBrevoKey')?.addEventListener('click', function () {
-    const inp = document.getElementById('brevoApiKeyInput');
-    inp.type  = inp.type === 'password' ? 'text' : 'password';
-    this.classList.toggle('fa-eye');
-    this.classList.toggle('fa-eye-slash');
-});
-
-document.getElementById('btnTestBrevo')?.addEventListener('click', function () {
-    const apiKey = document.querySelector('[name=brevo_api_key]').value.trim();
-    const result = document.getElementById('brevoTestResult');
-
-    this.disabled = true;
-    this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Testing…';
-    result.style.display = 'none';
-
-    const params = new URLSearchParams({ action: 'test_brevo', api_key: apiKey });
-    fetch('brevo_test.php', { method: 'POST', body: params })
-        .then(r => r.json())
-        .then(data => {
-            result.style.display = 'block';
-            if (data.ok) {
-                result.innerHTML = '<div class="alert alert-success py-2" style="font-size:12px;"><i class="fas fa-check-circle me-1"></i>' + data.message + '</div>';
-            } else {
-                result.innerHTML = '<div class="alert alert-danger py-2" style="font-size:12px;"><i class="fas fa-times-circle me-1"></i>' + data.message + '</div>';
-            }
-        })
-        .catch(() => {
-            result.style.display = 'block';
-            result.innerHTML = '<div class="alert alert-danger py-2" style="font-size:12px;"><i class="fas fa-times-circle me-1"></i>Test request failed. Check server logs.</div>';
-        })
-        .finally(() => {
-            this.disabled = false;
-            this.innerHTML = '<i class="fas fa-plug me-1"></i> Test';
-        });
-});
-</script>

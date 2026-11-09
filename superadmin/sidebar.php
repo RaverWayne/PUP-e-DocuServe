@@ -12,7 +12,6 @@ $current_page = $current_page ?? '';
         <div class="nav-section">Main</div>
         <a href="index.php" class="<?= $current_page==='dashboard'?'active':'' ?>"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
         <a href="manage_requests.php" class="<?= $current_page==='requests'?'active':'' ?>"><i class="fas fa-file-alt"></i> Manage Requests</a>
-        <a href="walkin_requests.php" class="<?= $current_page==='walkin'?'active':'' ?>"><i class="fas fa-walking"></i> Walk-in Payments</a>
         <div class="nav-section">Management</div>
         <a href="students.php" class="<?= $current_page==='students'?'active':'' ?>"><i class="fas fa-users"></i> Students</a>
         <a href="manage_admins.php" class="<?= $current_page==='admins'?'active':'' ?>"><i class="fas fa-user-shield"></i> Manage Admins</a>
@@ -23,6 +22,7 @@ $current_page = $current_page ?? '';
         <a href="export.php" class="<?= $current_page==='export'?'active':'' ?>"><i class="fas fa-file-export"></i> Export Data</a>
         <a href="system_logs.php" class="<?= $current_page==='logs'?'active':'' ?>"><i class="fas fa-history"></i> System Logs</a>
         <a href="system_settings.php" class="<?= $current_page==='settings'?'active':'' ?>"><i class="fas fa-sliders-h"></i> System Settings</a>
+        <a href="notification_settings.php" class="<?= $current_page==='notifications'?'active':'' ?>"><i class="fas fa-bell"></i> Notification Settings</a>
         <div class="nav-section">Account</div>
         <a href="account_settings.php" class="<?= $current_page==='account'?'active':'' ?>"><i class="fas fa-cog"></i> Account Settings</a>
     </nav>

@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $current_year = date('Y');
-$years        = range($current_year, 1990);
+$years        = range($current_year, 2010);
 
 $courses = [
     'BACHELOR OF SCIENCE IN PSYCHOLOGY',
@@ -397,7 +397,7 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 <div class="register-wrapper">
 
     <div class="register-notice">
-        For <strong>Bachelor's Degree Students/Graduates of PUP Biñan Campus Only.</strong>
+         <strong>For all students and graduates of PUP Biñan Campus, including bachelor’s degree and diploma programs.</strong>
     </div>
 
     <p class="text-muted mb-1" style="font-size:13px;">Use the form below to create a new account.</p>

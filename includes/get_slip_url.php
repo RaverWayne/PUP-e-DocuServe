@@ -22,7 +22,7 @@ if ($request_id <= 0) {
     exit();
 }
 
-$stmt = $pdo->prepare("SELECT bank_slip_path FROM requests WHERE id = ?");
+$stmt = $pdo->prepare("SELECT bank_slip_path, receipt_path FROM requests WHERE id = ?");
 $stmt->execute([$request_id]);
 $row = $stmt->fetch();
 
@@ -31,4 +31,6 @@ if (!$row) {
     exit();
 }
 
-echo json_encode(['url' => getSlipUrl($row['bank_slip_path'])]);
+$type = $_GET['type'] ?? 'proof'; // 'proof' → bank_slip_path, 'receipt' → receipt_path
+$path = ($type === 'receipt') ? $row['receipt_path'] : $row['bank_slip_path'];
+echo json_encode(['url' => getSlipUrl($path)]);

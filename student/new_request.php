@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../includes/mailer.php';
 require_once '../includes/release_date.php';
 require_once 'csrf.php';
 
@@ -42,6 +43,7 @@ foreach ($all_docs as $doc) {
 $success        = false;
 $error          = '';
 $control_number = '';
+$submitted_payment_method = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
@@ -54,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $payment_method = trim($_POST['payment_method'] ?? '');
     $doc_ids        = $_POST['doc_ids'] ?? [];
     $quantities     = $_POST['quantities'] ?? [];
-    $allowed_methods = ['Walk-in (Cashier)', 'Walk-in (Bank Slip)'];
+    $allowed_methods = ['Direct Payment (Cashier)', 'GCash', 'Bank Deposit (LandBank)'];
 
     if ($blocked_for_verification) {
         $error = "Your account is pending approval. You cannot submit new requests yet.";
@@ -121,7 +123,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Log request creation to history
         $student_name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
         $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
-            ->execute([$request_id, null, 'Pending', $student_name ?: 'Student', 'Request submitted by student']);
+            ->execute([$request_id, null, 'Submitted', $student_name ?: 'Student', 'Request submitted by student']);
+
+        $docNames = [];
+        foreach ($items as $item) $docNames[] = $item['doc']['document_name'] . ' x' . $item['qty'];
+        notifyAdminsNewRequest($pdo, [
+            'control_number' => $control_number,
+            'documents' => implode(', ', $docNames),
+            'total_amount' => $total,
+            'payment_method' => $payment_method,
+            'date_filed' => date('Y-m-d H:i:s'),
+        ], ['first_name' => $user['first_name'] ?? '', 'last_name' => $user['last_name'] ?? '', 'student_number' => $user['student_number'] ?? '']);
 
         $fb_check = $pdo->prepare("SELECT id FROM feedback WHERE user_id = ?");
         $fb_check->execute([$user_id]);
@@ -130,6 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
+        $submitted_payment_method = $payment_method;
         $success = true;
     }
 }
@@ -144,6 +157,14 @@ $purposes = [
     'Government Requirement',
     'Others',
 ];
+
+// Payment method info from system_settings
+$pm_settings_stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings
+    WHERE setting_key IN ('gcash_number','gcash_qr_path','bank_name','bank_account_name','bank_account_number')");
+$pm_cfg = [];
+foreach ($pm_settings_stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+    $pm_cfg[$r['setting_key']] = $r['setting_value'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -332,11 +353,7 @@ $purposes = [
                     <i class="fas fa-check-circle" style="font-size:40px; color:#2d6a27;"></i>
                     <h4 class="mt-3">Request Submitted Successfully!</h4>
                     <div class="control-num"><?= htmlspecialchars($control_number) ?></div>
-                    <p>Your document request has been submitted. Please proceed to pay and present or upload your proof of payment in the <strong>Requests</strong> tab.</p>
-                    <div class="mt-3 d-flex justify-content-center gap-2">
-                        <a href="requests.php" class="btn btn-sm" style="background:var(--pup-red); color:white;">View My Requests</a>
-                        <a href="new_request.php" class="btn btn-sm btn-outline-secondary">New Request</a>
-                    </div>
+                    <p>Follow the steps in the popup to complete your payment. Please proceed to pay and present or upload your proof of payment in the <strong>Requests</strong> tab.</p>
                 </div>
             </div>
         </div>
@@ -483,21 +500,81 @@ echo $min === $max
                     <div class="payment-options">
                         <div class="payment-option">
                             <input type="radio" name="payment_method" id="pm_cashier"
-                                value="Walk-in (Cashier)"
-                                <?= (isset($_POST['payment_method']) && $_POST['payment_method'] === 'Walk-in (Cashier)') ? 'checked' : '' ?>>
+                                value="Direct Payment (Cashier)"
+                                onchange="showPaymentInfo()"
+                                <?= (isset($_POST['payment_method']) && $_POST['payment_method'] === 'Direct Payment (Cashier)') ? 'checked' : '' ?>>
                             <label for="pm_cashier">
                                 <i class="fas fa-cash-register"></i>
-                                Walk-in (Cashier)
+                                Direct Payment (Cashier)
                             </label>
                         </div>
                         <div class="payment-option">
-                            <input type="radio" name="payment_method" id="pm_bankslip"
-                                value="Walk-in (Bank Slip)"
-                                <?= (isset($_POST['payment_method']) && $_POST['payment_method'] === 'Walk-in (Bank Slip)') ? 'checked' : '' ?>>
-                            <label for="pm_bankslip">
-                                <i class="fas fa-receipt"></i>
-                                Walk-in (Bank Slip)
+                            <input type="radio" name="payment_method" id="pm_gcash"
+                                value="GCash"
+                                onchange="showPaymentInfo()"
+                                <?= (isset($_POST['payment_method']) && $_POST['payment_method'] === 'GCash') ? 'checked' : '' ?>>
+                            <label for="pm_gcash">
+                                <i class="fas fa-mobile-alt"></i>
+                                GCash
                             </label>
+                        </div>
+                        <div class="payment-option">
+                            <input type="radio" name="payment_method" id="pm_bank"
+                                value="Bank Deposit (LandBank)"
+                                onchange="showPaymentInfo()"
+                                <?= (isset($_POST['payment_method']) && $_POST['payment_method'] === 'Bank Deposit (LandBank)') ? 'checked' : '' ?>>
+                            <label for="pm_bank">
+                                <i class="fas fa-university"></i>
+                                Bank Deposit (LandBank)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Contextual info panels, shown based on selection -->
+                    <div id="pmInfo_cashier" class="pm-info-panel" style="display:none;">
+                        <div class="alert alert-secondary py-2 px-3 mb-0 mt-3" style="font-size:12px;">
+                            <i class="fas fa-info-circle me-1"></i>
+                            <strong>Direct Payment (Cashier):</strong> After submitting your request, proceed to the PUP Biñan Cashier's Office during office hours to pay.
+                            Upload your official receipt in the <em>Requests</em> tab as proof of payment.
+                        </div>
+                    </div>
+                    <div id="pmInfo_gcash" class="pm-info-panel" style="display:none;">
+                        <div class="alert alert-primary py-2 px-3 mb-0 mt-3" style="font-size:12px;">
+                            <i class="fas fa-mobile-alt me-1"></i>
+                            <strong>GCash Payment:</strong>
+                            <?php if (!empty($pm_cfg['gcash_number'])): ?>
+                                Send payment to <strong><?= htmlspecialchars($pm_cfg['gcash_number']) ?></strong>.
+                            <?php else: ?>
+                                GCash number will be provided by the Registrar's Office.
+                            <?php endif; ?>
+                            <?php if (!empty($pm_cfg['gcash_qr_path'])): ?>
+                                <div class="mt-2">
+                                    <img src="<?= htmlspecialchars($pm_cfg['gcash_qr_path']) ?>"
+                                         alt="GCash QR Code" style="max-height:160px; border:1px solid #ccc; border-radius:4px;">
+                                </div>
+                            <?php endif; ?>
+                            <div class="mt-1">After paying, upload your GCash screenshot in the <em>Requests</em> tab as proof of payment.</div>
+                        </div>
+                    </div>
+                    <div id="pmInfo_bank" class="pm-info-panel" style="display:none;">
+                        <div class="alert alert-warning py-2 px-3 mb-0 mt-3" style="font-size:12px; color:#4d3800;">
+                            <i class="fas fa-university me-1"></i>
+                            <strong>Bank Deposit (LandBank):</strong>
+                            <?php if (!empty($pm_cfg['bank_name']) || !empty($pm_cfg['bank_account_name'])): ?>
+                                Deposit to:
+                                <?php if (!empty($pm_cfg['bank_name'])): ?>
+                                    <strong><?= htmlspecialchars($pm_cfg['bank_name']) ?></strong> —
+                                <?php endif; ?>
+                                <?php if (!empty($pm_cfg['bank_account_name'])): ?>
+                                    Account Name: <strong><?= htmlspecialchars($pm_cfg['bank_account_name']) ?></strong>
+                                <?php endif; ?>
+                                <?php if (!empty($pm_cfg['bank_account_number'])): ?>
+                                    | Account No.: <strong><?= htmlspecialchars($pm_cfg['bank_account_number']) ?></strong>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                Bank deposit details will be provided by the Registrar's Office.
+                            <?php endif; ?>
+                            <div class="mt-1">After depositing, upload your deposit slip in the <em>Requests</em> tab as proof of payment.</div>
                         </div>
                     </div>
                 </div>
@@ -588,7 +665,52 @@ echo $min === $max
     </div>
 </div>
 
+<!-- What's Next modal -->
+<div class="modal fade" id="whatsNextModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" style="background:var(--pup-red); color:white;">
+                <h5 class="modal-title"><i class="fas fa-check-circle me-2"></i>Request Submitted</h5>
+            </div>
+            <div class="modal-body" style="font-size:13px;">
+                <div style="text-align:center; margin-bottom:16px;">
+                    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px;">Control Number</div>
+                    <div style="font-size:22px; font-weight:700; color:var(--pup-red);"><?= htmlspecialchars($control_number) ?></div>
+                </div>
+                <ol id="whatsNextSteps" style="padding-left:18px; margin:0;">
+                    <li id="wnStep1" style="margin-bottom:10px;"></li>
+                    <li id="wnStep2" style="margin-bottom:10px;"></li>
+                    <li style="margin-bottom:10px;">Before handing over your stamped receipt at the Registrar's window, take a clear photo of it. This is your personal copy — keep it safe.</li>
+                    <li style="margin-bottom:10px;">Present the original stamped official receipt at the Registrar's window to have your request officially processed.</li>
+                    <li style="margin-bottom:10px;">Upload your photo of the stamped receipt in the Requests tab. This serves as your file copy in the system.</li>
+                    <li style="margin-bottom:10px;">Monitor your request status in the Requests tab. You will receive an email notification each time your status is updated.</li>
+                    <li>Once your request is marked "Ready for Pickup," visit the Registrar's Office with a valid ID and your control number to claim your documents.</li>
+                </ol>
+            </div>
+            <div class="modal-footer" style="justify-content:center;">
+                <a href="requests.php" class="btn" style="background:var(--pup-red); color:white; font-weight:600; padding:8px 28px;">Go to My Requests</a>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const wnMethod = <?= json_encode($submitted_payment_method) ?>;
+    const wnSteps12 = {
+        'Direct Payment (Cashier)': ['Proceed to the PUP Biñan Cashier\'s Office to settle the payment. You may pay in cash or via GCash at the cashier\'s terminal.', 'The cashier will issue you an official receipt with a stamp. This is your proof of payment.'],
+        'GCash': ['Send the exact payment amount to the GCash number provided during request submission. Take a clear screenshot of the confirmed transaction before leaving the app.', 'Present your GCash screenshot at the Cashier\'s Office. The cashier will issue you an official receipt with a stamp.'],
+        'Bank Deposit (LandBank)': ['Deposit the exact amount to the LandBank account provided during request submission. Keep your bank deposit slip — you will need it.', 'Present your bank deposit slip at the Cashier\'s Office. The cashier will issue you an official receipt with a stamp.']
+    };
+    document.addEventListener('DOMContentLoaded', function() {
+        <?php if ($success): ?>
+            const s = wnSteps12[wnMethod] || wnSteps12['Direct Payment (Cashier)'];
+            document.getElementById('wnStep1').textContent = s[0];
+            document.getElementById('wnStep2').textContent = s[1];
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('whatsNextModal')).show();
+        <?php endif; ?>
+    });
+</script>
 <script>
     function showCategory(cat, btn) {
         document.querySelectorAll('.doc-category').forEach(el => el.classList.remove('active'));
@@ -706,10 +828,12 @@ echo $min === $max
         document.getElementById('summaryItems').innerHTML         = rows;
         document.getElementById('summaryTotal').textContent       = total.toFixed(2);
 
-        const notice = paymentMethod === 'Walk-in (Cashier)'
-            ? '<i class="fas fa-info-circle me-1"></i> You selected <strong>Walk-in (Cashier)</strong>. Please proceed to the PUP Biñan Cashier\'s Office to settle payment after submitting.'
-            : '<i class="fas fa-info-circle me-1"></i> You selected <strong>Walk-in (Bank Slip)</strong>. After submitting, upload your bank deposit slip in the Requests tab as proof of payment.';
-        document.getElementById('summaryNotice').innerHTML = notice;
+        const noticeMap = {
+            'Direct Payment (Cashier)': '<i class="fas fa-cash-register me-1"></i> You selected <strong>Direct Payment (Cashier)</strong>. After submitting, visit the PUP Biñan Cashier\'s Office to pay, then upload your receipt in the Requests tab.',
+            'GCash':                    '<i class="fas fa-mobile-alt me-1"></i> You selected <strong>GCash</strong>. After paying, upload your GCash screenshot in the Requests tab to confirm payment.',
+            'Bank Deposit (LandBank)':  '<i class="fas fa-university me-1"></i> You selected <strong>Bank Deposit (LandBank)</strong>. After depositing, upload your deposit slip in the Requests tab to confirm payment.',
+        };
+        document.getElementById('summaryNotice').innerHTML = noticeMap[paymentMethod] || '';
 
         new bootstrap.Modal(document.getElementById('orderSummaryModal')).show();
     }
@@ -733,6 +857,19 @@ echo $min === $max
         bootstrap.Modal.getInstance(document.getElementById('orderSummaryModal')).hide();
         document.getElementById('requestForm').submit();
     }
+
+    function showPaymentInfo() {
+        const panels = { cashier: 'pmInfo_cashier', GCash: 'pmInfo_gcash', bank: 'pmInfo_bank' };
+        const radios  = { pm_cashier: 'cashier', pm_gcash: 'GCash', pm_bank: 'bank' };
+        Object.values(panels).forEach(id => { document.getElementById(id).style.display = 'none'; });
+        const checked = document.querySelector('input[name="payment_method"]:checked');
+        if (checked) {
+            const key = radios[checked.id];
+            if (key) document.getElementById(panels[key]).style.display = 'block';
+        }
+    }
+    // Show panel on load if POST brought back a selection
+    showPaymentInfo();
 
     document.querySelector('select[name="purpose"]').addEventListener('change', function () {
         const box = document.getElementById('othersBox');

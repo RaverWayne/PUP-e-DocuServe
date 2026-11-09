@@ -1,4 +1,4 @@
-# ── Local environment / secrets ──────────────────────────────
+﻿# ── Local environment / secrets ──────────────────────────────
 # Each teammate's WAMP setup may have different DB credentials.
 .env
 .env.local
@@ -14,7 +14,7 @@ assets/uploads/*
 node_modules/
 vendor/
 
-# ── OS / editor junk ──────────────────────────────────────────
+# ── OS / editor junk ─────────────────────────────────────────
 Thumbs.db
 desktop.ini
 .DS_Store
@@ -28,3 +28,31 @@ error_log
 
 # ── Composer binary (local install) ──────────────────────────
 composer.phar
+
+# ── Sensitive / secrets ──────────────────────────────────────
+note.txt
+
+# ── Dev / debug scripts ──────────────────────────────────────
+_gen_bug_report.php
+
+# ── Generated / planning documents ──────────────────────────
+document_request_processing_guide.md
+CLOUDINARY_PLAN.md
+FEATURE_OVERHAUL_PLAN.md
+# ── Database backups ─────────────────────────────────────────
+database/edocuserve_backup.sql
+
+# ── Binary / media files (not part of system assets) ─────────
+*.pdf
+*.xlsx
+*.xls
+image.png
+
+# ── IDE / tool directories ────────────────────────────────────
+.claude/
+.kiro/
+
+# ── Generated output directories ─────────────────────────────
+graphify-out/
+"generated contents/"
+"Edocuserve files/"

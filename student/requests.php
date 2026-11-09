@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_request_id']))
     if (empty($cancel_reason)) {
         $cancel_error = "Please provide a reason for cancellation.";
     } else {
-        $stmt = $pdo->prepare("SELECT * FROM requests WHERE id = ? AND user_id = ? AND payment_status = 'Unpaid'");
+        $stmt = $pdo->prepare("SELECT * FROM requests WHERE id = ? AND user_id = ? AND payment_status = 'Awaiting Payment'");
         $stmt->execute([$cancel_id, $user_id]);
         $to_cancel = $stmt->fetch();
 
@@ -54,13 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_request_id']))
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
     csrf_verify();
-    $request_id = intval($_POST['request_id'] ?? 0);
-    $file       = $_FILES['bank_slip'];
-    $allowed    = ['image/jpeg', 'image/jpg'];
-    $max_size   = 10 * 1024 * 1024;
-
-    // Double-check actual file extension too
-    $ext_check  = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $request_id  = intval($_POST['request_id'] ?? 0);
+    $upload_type = $_POST['upload_type'] ?? 'proof'; // 'proof' → bank_slip_path, 'receipt' → receipt_path
+    $file        = $_FILES['bank_slip'];
+    $allowed     = ['image/jpeg', 'image/jpg', 'image/png'];
+    $max_size    = 10 * 1024 * 1024;
+    $ext_check   = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
     $stmt = $pdo->prepare("SELECT * FROM requests WHERE id = ? AND user_id = ?");
     $stmt->execute([$request_id, $user_id]);
@@ -68,40 +67,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
 
     if (!$req) {
         $upload_error = "Invalid request.";
-    } elseif (!in_array($file['type'], $allowed) || !in_array($ext_check, ['jpg', 'jpeg'])) {
-        $upload_error = "Only JPG/JPEG files are allowed for bank slip uploads.";
-    } elseif ((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']) !== 'image/jpeg') {
-        // Verify actual file content
-        $upload_error = "The uploaded file's content doesn't match a valid JPG image.";
+    } elseif (!in_array($file['type'], $allowed) || !in_array($ext_check, ['jpg', 'jpeg', 'png'])) {
+        $upload_error = "Only JPG/JPEG files are allowed.";
+    } elseif (!in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), ['image/jpeg', 'image/png'])) {
+        $upload_error = "The uploaded file's content doesn't match a valid image.";
     } elseif ($file['size'] > $max_size) {
         $upload_error = "File size must not exceed 10MB.";
+    } elseif ($upload_type === 'receipt' && empty($req['bank_slip_path']) && in_array($req['payment_method'], ['GCash', 'Bank Deposit (LandBank)'])) {
+        $upload_error = "Please upload your proof of payment first before uploading the receipt.";
     } else {
-        $publicId = 'slip_' . $request_id . '_' . time();
+        $publicId = ($upload_type === 'receipt' ? 'receipt_' : 'slip_') . $request_id . '_' . time();
 
-        // Try Cloudinary first; fall back to local if not configured
         require_once '../includes/cloudinary.php';
         $cloudinary = getCloudinary();
 
         if ($cloudinary !== null) {
-            // Upload to Cloudinary (private/authenticated delivery)
             try {
                 $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
                     'folder'          => 'edocuserve/slips',
                     'type'            => 'upload',
                     'public_id'       => $publicId,
                     'resource_type'   => 'image',
-                    'allowed_formats' => ['jpg', 'jpeg'],
+                    'allowed_formats' => ['jpg', 'jpeg', 'png'],
                     'overwrite'       => true,
                 ]);
-                $savedPath = $uploadResult['public_id']; // e.g. edocuserve/slips/slip_42_...
-                $stmt = $pdo->prepare("UPDATE requests SET bank_slip_path = ?, payment_status = 'Pending Verification' WHERE id = ? AND user_id = ?");
-                $stmt->execute([$savedPath, $request_id, $user_id]);
+                $savedPath = $uploadResult['public_id'];
+                if ($upload_type === 'receipt') {
+                    $pdo->prepare("UPDATE requests SET receipt_path = ?, payment_status = 'Payment Submitted' WHERE id = ? AND user_id = ?")
+                        ->execute([$savedPath, $request_id, $user_id]);
+                } else {
+                    $pdo->prepare("UPDATE requests SET bank_slip_path = ? WHERE id = ? AND user_id = ?")
+                        ->execute([$savedPath, $request_id, $user_id]);
+                }
                 $upload_success = true;
             } catch (\Exception $e) {
+                error_log('[requests.php] Cloudinary upload failed: ' . $e->getMessage());
                 $upload_error = "Failed to upload. Please try again.";
             }
         } else {
-            // Cloudinary not configured — save locally as before
             $ext      = pathinfo($file['name'], PATHINFO_EXTENSION);
             $filename = $publicId . '.' . $ext;
             $dest     = '../assets/uploads/' . $filename;
@@ -111,8 +114,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
             }
 
             if (move_uploaded_file($file['tmp_name'], $dest)) {
-                $stmt = $pdo->prepare("UPDATE requests SET bank_slip_path = ?, payment_status = 'Pending Verification' WHERE id = ? AND user_id = ?");
-                $stmt->execute([$filename, $request_id, $user_id]);
+                if ($upload_type === 'receipt') {
+                    $pdo->prepare("UPDATE requests SET receipt_path = ?, payment_status = 'Payment Submitted' WHERE id = ? AND user_id = ?")
+                        ->execute([$filename, $request_id, $user_id]);
+                } else {
+                    $pdo->prepare("UPDATE requests SET bank_slip_path = ? WHERE id = ? AND user_id = ?")
+                        ->execute([$filename, $request_id, $user_id]);
+                }
                 $upload_success = true;
             } else {
                 $upload_error = "Failed to upload. Please try again.";
@@ -134,13 +142,13 @@ $stmt->execute([$user_id]);
 $requests = $stmt->fetchAll();
 
 function statusBadge($status) {
-    $map = ['Pending' => 'secondary', 'Processing' => 'primary', 'Ready for Pickup' => 'success', 'Claimed' => 'dark', 'Cancelled' => 'danger'];
+    $map = ['Submitted' => 'secondary', 'Being Processed' => 'primary', 'Ready for Pickup' => 'success', 'Claimed' => 'dark', 'Cancelled' => 'danger'];
     $color = $map[$status] ?? 'secondary';
     return "<span class='badge bg-{$color}'>{$status}</span>";
 }
 
 function paymentBadge($status) {
-    $map = ['Unpaid' => ['danger','✗ Unpaid'], 'Pending Verification' => ['warning text-dark','⏳ Pending Verification'], 'Paid' => ['success','✔ YES']];
+    $map = ['Awaiting Payment' => ['danger','✗ Unpaid'], 'Payment Submitted' => ['warning text-dark','⏳ Submitted'], 'Payment Verified' => ['success','✔ Verified']];
     $data = $map[$status] ?? ['secondary', $status];
     return "<span class='badge bg-{$data[0]}'>{$data[1]}</span>";
 }
@@ -246,7 +254,7 @@ function paymentBadge($status) {
 <div class="content-wrapper">
 
     <?php if ($upload_success): ?>
-        <div class="alert alert-success py-2 mb-3" style="font-size:13px;"><i class="fas fa-check-circle me-1"></i> Bank slip uploaded! The registrar will verify your payment shortly.</div>
+        <div class="alert alert-success py-2 mb-3" style="font-size:13px;"><i class="fas fa-check-circle me-1"></i> File uploaded successfully. The registrar will verify your payment shortly.</div>
     <?php endif; ?>
     <?php if (!empty($upload_error)): ?>
         <div class="alert alert-danger py-2 mb-3" style="font-size:13px;"><i class="fas fa-exclamation-circle me-1"></i> <?= htmlspecialchars($upload_error) ?></div>
@@ -305,35 +313,54 @@ function paymentBadge($status) {
                             <div><?= $req['tentative_release_date'] ? date('d/m/Y', strtotime($req['tentative_release_date'])) : '<span style="color:#aaa;">-</span>' ?></div>
                             <div class="mt-1" style="font-size:12px;">Paid? <?= paymentBadge($req['payment_status']) ?></div>
                         </td>
-                        <td style="text-align:center; min-width:130px;">
-                            <?php if ($req['payment_status'] === 'Unpaid' && $req['request_status'] !== 'Cancelled'): ?>
+                        <td style="text-align:center; min-width:150px;">
+                            <?php
+                            $pm     = $req['payment_method'] ?? '';
+                            $pstat  = $req['payment_status'];
+                            $rstat  = $req['request_status'];
+                            $hasProof    = !empty($req['bank_slip_path']);
+                            $hasReceipt  = !empty($req['receipt_path']);
+                            // Direct Payment (Cashier): single receipt upload unlocks Payment Submitted
+                            $isCashier   = ($pm === 'Direct Payment (Cashier)');
+                            // GCash / Bank: two-step (proof first, then receipt)
+                            $isTwoStep   = in_array($pm, ['GCash', 'Bank Deposit (LandBank)']);
+                            ?>
+                            <?php if ($rstat === 'Cancelled'): ?>
+                                <span style="color:#aaa; font-size:11px;">-</span>
+                            <?php elseif ($pstat === 'Payment Verified'): ?>
+                                <span style="font-size:11px; color:#27ae60;"><i class="fas fa-check-circle me-1"></i>Verified</span>
+                            <?php elseif ($pstat === 'Payment Submitted'): ?>
+                                <span style="font-size:11px; color:#888;"><i class="fas fa-clock me-1"></i>Awaiting Verification</span>
+                            <?php elseif ($isCashier && $pstat === 'Awaiting Payment'): ?>
                                 <div style="display:flex; flex-direction:column; gap:5px; align-items:center;">
-                                    <?php if (($req['payment_method'] ?? '') === 'Walk-in (Bank Slip)'): ?>
-                                        <button class="btn-action upload" onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
-                                            <i class="fas fa-upload me-1"></i> Upload Slip
-                                        </button>
-                                    <?php else: ?>
-                                        <span style="font-size:11px; color:#888; text-align:center;"><i class="fas fa-cash-register me-1"></i>Pay at Cashier</span>
-                                    <?php endif; ?>
+                                    <button class="btn-action upload"
+                                        onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'receipt', 'Upload Official Receipt')">
+                                        <i class="fas fa-upload me-1"></i> Upload Receipt
+                                    </button>
                                     <button class="btn-action cancel" onclick="openCancel(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
                                         <i class="fas fa-times me-1"></i> Cancel
                                     </button>
                                 </div>
-                            <?php elseif ($req['payment_status'] === 'Pending Verification'): ?>
-                                <?php if ($req['bank_slip_path'] === 'walkin'): ?>
-                                    <span style="font-size:11px; color:#888;"><i class="fas fa-store me-1"></i>Walk-in Pending</span>
-                                <?php else: ?>
-                                    <span style="font-size:11px; color:#888;"><i class="fas fa-clock me-1"></i>Awaiting Verification</span>
-                                <?php endif; ?>
-                            <?php elseif (!empty($req['bank_slip_path']) && $req['bank_slip_path'] !== 'walkin'): ?>
-                                <?php $slipUrl = getSlipUrl($req['bank_slip_path']); ?>
-                                <?php if ($slipUrl): ?>
-                                <a href="<?= htmlspecialchars($slipUrl) ?>" target="_blank" class="btn-view">
-                                    <i class="fas fa-eye me-1"></i> View Slip
-                                </a>
-                                <?php else: ?>
-                                <span style="color:#aaa; font-size:11px;">Slip unavailable</span>
-                                <?php endif; ?>
+                            <?php elseif ($isTwoStep && $pstat === 'Awaiting Payment'): ?>
+                                <div style="display:flex; flex-direction:column; gap:5px; align-items:center;">
+                                    <?php if (!$hasProof): ?>
+                                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:2px;">Step 1 of 2</div>
+                                        <button class="btn-action upload"
+                                            onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'proof', 'Upload Proof of Payment')">
+                                            <i class="fas fa-upload me-1"></i> Upload Proof
+                                        </button>
+                                        <button class="btn-action cancel" onclick="openCancel(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
+                                            <i class="fas fa-times me-1"></i> Cancel
+                                        </button>
+                                    <?php else: ?>
+                                        <div style="font-size:11px; color:#27ae60; font-weight:600; margin-bottom:2px;"><i class="fas fa-check me-1"></i>Proof uploaded</div>
+                                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:2px;">Step 2 of 2</div>
+                                        <button class="btn-action upload"
+                                            onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'receipt', 'Upload Official Receipt')">
+                                            <i class="fas fa-receipt me-1"></i> Upload Receipt
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
                             <?php else: ?>
                                 <span style="color:#aaa; font-size:11px;">-</span>
                             <?php endif; ?>
@@ -372,17 +399,18 @@ function paymentBadge($status) {
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h6 class="modal-title"><i class="fas fa-upload me-2"></i>Upload Bank Slip</h6>
+                <h6 class="modal-title" id="uploadModalTitle"><i class="fas fa-upload me-2"></i>Upload File</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" enctype="multipart/form-data">
                 <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="uploadRequestId">
+                    <input type="hidden" name="upload_type" id="uploadType" value="proof">
                     <p class="mb-1">Control Number: <strong id="uploadControlNum"></strong></p>
-                    <p class="text-muted mb-3" style="font-size:12px;">Upload a clear photo or scanned copy of your bank slip as proof of payment.</p>
-                    <input type="file" name="bank_slip" class="form-control" accept=".jpg,.jpeg" required style="font-size:13px;">
-                    <div style="font-size:11px; color:#888; margin-top:4px;">Accepted: JPG/JPEG only. Max file size: 10MB.</div>
+                    <p class="text-muted mb-3" id="uploadHint" style="font-size:12px;">Upload a clear photo or scanned copy of your file.</p>
+                    <input type="file" name="bank_slip" class="form-control" accept=".jpg,.jpeg,.png" required style="font-size:13px;">
+                    <div style="font-size:11px; color:#888; margin-top:4px;">Accepted: JPG, JPEG, PNG. Max file size: 10MB.</div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -428,58 +456,82 @@ function paymentBadge($status) {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function openDetails(req) {
-    const statusMap = { 'Pending':'<span class="badge bg-secondary">Pending</span>', 'Processing':'<span class="badge bg-primary">Processing</span>', 'Ready for Pickup':'<span class="badge bg-success">Ready for Pickup</span>', 'Claimed':'<span class="badge bg-dark">Claimed</span>', 'Cancelled':'<span class="badge bg-danger">Cancelled</span>' };
-    const payMap = { 'Unpaid':'<span class="badge bg-danger">✗ Unpaid</span>', 'Pending Verification':'<span class="badge bg-warning text-dark">⏳ Pending Verification</span>', 'Paid':'<span class="badge bg-success">✔ Paid</span>' };
-    let slipInfo = '-';
-    if (req.bank_slip_path === 'walkin') {
-        slipInfo = '<span class="badge bg-secondary"><i class="fas fa-walking me-1"></i>Walk-in</span>';
-    } else if (req.bank_slip_path) {
-        slipInfo = '<span style="color:#aaa; font-size:11px;"><i class="fas fa-spinner fa-spin me-1"></i>Loading slip link…</span>';
-    }
+    const statusMap = {
+        'Submitted':        '<span class="badge bg-secondary">Submitted</span>',
+        'Being Processed':  '<span class="badge bg-primary">Being Processed</span>',
+        'Ready for Pickup': '<span class="badge bg-success">Ready for Pickup</span>',
+        'Claimed':          '<span class="badge bg-dark">Claimed</span>',
+        'Cancelled':        '<span class="badge bg-danger">Cancelled</span>'
+    };
+    const payMap = {
+        'Awaiting Payment':  '<span class="badge bg-danger">✗ Awaiting Payment</span>',
+        'Payment Submitted': '<span class="badge bg-warning text-dark">⏳ Submitted</span>',
+        'Payment Verified':  '<span class="badge bg-success">✔ Verified</span>'
+    };
     let html = '<table style="width:100%;font-size:13px;border-collapse:collapse;">';
     html += row('Control Number', '<strong>' + req.control_number + '</strong>');
     html += row('Request Status', statusMap[req.request_status] || req.request_status);
     html += row('Payment Status', payMap[req.payment_status] || req.payment_status);
-    html += row('Payment Method', req.bank_slip_path === 'walkin' ? 'Walk-in' : (req.bank_slip_path ? 'Bank Slip Upload' : '-'));
+    html += row('Payment Method', req.payment_method || '-');
     html += row('Purpose', req.purpose);
     html += row('Total Amount', '₱ ' + parseFloat(req.total_amount).toFixed(2));
-    html += row('Payment Method', req.payment_method || '-');
     html += row('Date Filed', req.date_filed ? req.date_filed.substring(0,10) : '-');
     html += row('Date Verified', req.date_verified ? req.date_verified.substring(0,10) : '-');
     html += row('Tentative Release', req.tentative_release_date || '-');
-    html += '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:9px 16px;font-weight:600;color:#555;width:160px;background:#fafafa;">Bank Slip:</td><td style="padding:9px 16px;color:#333;" id="slipCell">' + slipInfo + '</td></tr>';
-    html += row('Admin Responsible', req.admin_name ? '<strong>' + req.admin_name + '</strong>' : '<span style="color:#aaa;">Not yet assigned</span>');
+    // Proof of payment link
+    html += '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:9px 16px;font-weight:600;color:#555;width:160px;background:#fafafa;">Proof of Payment:</td><td style="padding:9px 16px;color:#333;" id="slipCell">';
+    if (req.bank_slip_path) {
+        html += '<span style="color:#aaa;font-size:11px;"><i class="fas fa-spinner fa-spin me-1"></i>Loading…</span>';
+    } else { html += '-'; }
+    html += '</td></tr>';
+    // Official receipt link
+    html += '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:9px 16px;font-weight:600;color:#555;width:160px;background:#fafafa;">Official Receipt:</td><td style="padding:9px 16px;color:#333;" id="receiptCell">';
+    if (req.receipt_path) {
+        html += '<span style="color:#aaa;font-size:11px;"><i class="fas fa-spinner fa-spin me-1"></i>Loading…</span>';
+    } else { html += '-'; }
+    html += '</td></tr>';
     html += row('Admin Notes', req.admin_notes || '<span style="color:#aaa;">None</span>');
     html += '</table>';
     document.getElementById('detailsContent').innerHTML = html;
     const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
     modal.show();
 
-    if (req.bank_slip_path && req.bank_slip_path !== 'walkin') {
+    if (req.bank_slip_path) {
         fetch('get_slip_url.php?request_id=' + req.id)
             .then(r => r.json())
             .then(data => {
                 const cell = document.getElementById('slipCell');
-                if (cell) {
-                    if (data.url) {
-                        cell.innerHTML = '<a href="' + data.url + '" target="_blank" class="btn-view"><i class="fas fa-eye me-1"></i> View Slip</a>';
-                    } else {
-                        cell.innerHTML = '<span style="color:#aaa; font-size:11px;">Slip unavailable</span>';
-                    }
-                }
+                if (cell) cell.innerHTML = data.url
+                    ? '<a href="' + data.url + '" target="_blank" class="btn-view"><i class="fas fa-eye me-1"></i>View Proof</a>'
+                    : '<span style="color:#aaa;font-size:11px;">Unavailable</span>';
             })
-            .catch(() => {
-                const cell = document.getElementById('slipCell');
-                if (cell) cell.innerHTML = '<span style="color:#aaa; font-size:11px;">Could not load slip</span>';
-            });
+            .catch(() => { const c = document.getElementById('slipCell'); if(c) c.innerHTML='<span style="color:#aaa;font-size:11px;">Could not load</span>'; });
+    }
+    if (req.receipt_path) {
+        fetch('get_slip_url.php?request_id=' + req.id + '&type=receipt')
+            .then(r => r.json())
+            .then(data => {
+                const cell = document.getElementById('receiptCell');
+                if (cell) cell.innerHTML = data.url
+                    ? '<a href="' + data.url + '" target="_blank" class="btn-view"><i class="fas fa-eye me-1"></i>View Receipt</a>'
+                    : '<span style="color:#aaa;font-size:11px;">Unavailable</span>';
+            })
+            .catch(() => { const c = document.getElementById('receiptCell'); if(c) c.innerHTML='<span style="color:#aaa;font-size:11px;">Could not load</span>'; });
     }
 }
 function row(label, value) {
     return `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:9px 16px;font-weight:600;color:#555;width:160px;background:#fafafa;">${label}:</td><td style="padding:9px 16px;color:#333;">${value}</td></tr>`;
 }
-function openUpload(reqId, controlNum) {
+function openUpload(reqId, controlNum, uploadType, title) {
     document.getElementById('uploadRequestId').value = reqId;
+    document.getElementById('uploadType').value = uploadType;
     document.getElementById('uploadControlNum').textContent = controlNum;
+    document.getElementById('uploadModalTitle').innerHTML = '<i class="fas fa-upload me-2"></i>' + (title || 'Upload File');
+    const hints = {
+        proof:   'Upload a clear photo or screenshot of your GCash payment or bank deposit slip.',
+        receipt: 'Upload a clear photo or scanned copy of your official receipt from the Registrar.'
+    };
+    document.getElementById('uploadHint').textContent = hints[uploadType] || '';
     new bootstrap.Modal(document.getElementById('uploadModal')).show();
 }
 function openCancel(reqId, controlNum) {
@@ -491,11 +543,7 @@ document.getElementById('uploadModal').addEventListener('show.bs.modal', functio
     document.getElementById('btnUploadSubmit').onclick = function (e) {
         const fileInput = document.querySelector('#uploadModal input[type=file]');
         if (!fileInput.value) return; // let HTML5 validation handle empty
-
         e.preventDefault();
-        
-        alert('Reminder: Still present the bank slip receipt at the Registrar\'s Office in person.');
-       
         e.target.closest('form').submit();
     };
 });

@@ -117,6 +117,7 @@ $search       = trim($_GET['search'] ?? '');
 $filter_course = trim($_GET['course'] ?? '');
 $filter_year   = trim($_GET['year'] ?? '');
 $filter_vstatus = trim($_GET['vstatus'] ?? '');
+$sort           = trim($_GET['sort'] ?? 'oldest');
 
 $where  = ["verification_status != 'Deleted'"];
 $params = [];
@@ -141,7 +142,15 @@ if (!empty($filter_vstatus)) {
 
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-$stmt = $pdo->prepare("SELECT * FROM users $whereSQL ORDER BY last_name ASC");
+$sortOptions = [
+    'oldest' => 'created_at ASC, id ASC',
+    'newest' => 'created_at DESC, id DESC',
+    'az'     => 'last_name ASC, first_name ASC',
+    'za'     => 'last_name DESC, first_name DESC',
+];
+$orderBy = $sortOptions[$sort] ?? $sortOptions['oldest'];
+
+$stmt = $pdo->prepare("SELECT * FROM users $whereSQL ORDER BY $orderBy");
 $stmt->execute($params);
 $students = $stmt->fetchAll();
 
@@ -211,27 +220,7 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="sidebar-brand">
-        <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
-        <div class="sidebar-brand-text">PUP e-DocuServe <span>Biñan Campus</span></div>
-    </div>
-    <div class="sidebar-role"><i class="fas fa-user-shield me-2"></i>Admin Panel</div>
-    <nav class="sidebar-nav">
-        <div class="nav-section">Main</div>
-        <a href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="manage_requests.php"><i class="fas fa-file-alt"></i> Manage Requests</a>
-        <a href="walkin_requests.php"><i class="fas fa-walking"></i> Walk-in Payments</a>
-        <div class="nav-section">Users</div>
-        <a href="students.php" class="active"><i class="fas fa-users"></i> Students</a>
-        <div class="nav-section">Account</div>
-        <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div style="font-size:11px; opacity:0.8;">PUP e-DocuServe v1.0</div>
-        <div style="font-size:11px; color:#888;">Biñan Campus</div>
-    </div>
-</div>
+<?php $current_page = 'students'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">
@@ -280,6 +269,13 @@ $years   = $pdo->query("SELECT DISTINCT year_admitted FROM users WHERE year_admi
                         <?php foreach ($years as $y): ?>
                             <option value="<?= $y ?>" <?= $filter_year == $y ? 'selected' : '' ?>><?= $y ?></option>
                         <?php endforeach; ?>
+                    </select>
+
+                    <select name="sort">
+                        <option value="oldest" <?= $sort === 'oldest' ? 'selected' : '' ?>>First to Latest</option>
+                        <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>>Latest to First</option>
+                        <option value="az"     <?= $sort === 'az'     ? 'selected' : '' ?>>Name A to Z</option>
+                        <option value="za"     <?= $sort === 'za'     ? 'selected' : '' ?>>Name Z to A</option>
                     </select>
 
                     <button type="submit"><i class="fas fa-search me-1"></i>Filter</button>

@@ -31,20 +31,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $custom_requirements  = trim($_POST['custom_requirements'] ?? '');
     $admin_name           = $_SESSION['admin_name'] ?? 'Unknown Admin';
 
-    $date_verified = ($payment_status === 'Paid') ? date('Y-m-d') : null;
+    $date_verified = ($payment_status === 'Payment Verified') ? date('Y-m-d') : null;
 
-    // Backend invariant validation (Decision Matrix §7)
-    $invalid_payment_for_processing = ($payment_status !== 'Paid' && in_array($request_status, ['Processing', 'Ready for Pickup', 'Claimed']));
-    if ($invalid_payment_for_processing) {
-        $_SESSION['flash_error'] = "Invalid state transition: Requests cannot be set to '$request_status' while Payment Status is '$payment_status'. Payment must be verified first.";
+    // Fetch current status for forward-only check
+    $cur = $pdo->prepare("SELECT request_status FROM requests WHERE id = ?");
+    $cur->execute([$request_id]);
+    $currentStatus = $cur->fetchColumn();
+
+    // Forward-only pipeline order (Cancelled reachable from any non-Claimed)
+    $pipeline = ['Submitted', 'Being Processed', 'Ready for Pickup', 'Claimed'];
+    $curIdx   = array_search($currentStatus, $pipeline);
+    $newIdx   = array_search($request_status, $pipeline);
+
+    // Block backward transitions
+    if ($curIdx !== false && $newIdx !== false && $newIdx < $curIdx) {
+        $_SESSION['flash_error'] = "Cannot revert '$currentStatus' back to '$request_status'. Status transitions are forward-only.";
         header("Location: manage_requests.php");
         exit();
     }
-    if ($request_status === 'Claimed' && $payment_status !== 'Paid') {
-        $_SESSION['flash_error'] = "Cannot mark request as Claimed without verified payment.";
+
+    // Payment gate: Being Processed / Ready for Pickup / Claimed require Payment Verified
+    if ($payment_status !== 'Payment Verified' && in_array($request_status, ['Being Processed', 'Ready for Pickup', 'Claimed'])) {
+        $_SESSION['flash_error'] = "Cannot set request to '$request_status' — payment must be verified first.";
         header("Location: manage_requests.php");
         exit();
     }
+
+    // Reason required on every status change
+    $reason = trim($_POST['change_reason'] ?? '');
+    if (empty($reason)) {
+        $_SESSION['flash_error'] = "A reason is required for every status change.";
+        header("Location: manage_requests.php");
+        exit();
+    }
+
     if ($request_status === 'Cancelled' && empty($admin_notes)) {
         $_SESSION['flash_error'] = "A cancellation reason is required. Please state the reason in Admin Notes.";
         header("Location: manage_requests.php");
@@ -78,6 +98,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $request_id
     ]);
 
+    // Log to request_history with required reason
+    $pdo->prepare("INSERT INTO request_history (request_id, old_status, new_status, changed_by, notes) VALUES (?, ?, ?, ?, ?)")
+        ->execute([$request_id, $currentStatus, $request_status, $admin_name, $reason]);
+
     if ($oldReq && $oldReq['request_status'] !== $request_status && !empty($oldReq['email'])) {
         $html = emailRequestStatusUpdate(
             $oldReq['first_name'],
@@ -103,8 +127,13 @@ $where  = [];
 $params = [];
 
 if ($filter !== 'All') {
-    $where[]  = "r.request_status = ?";
-    $params[] = $filter;
+    if ($filter === 'Awaiting Verification') {
+        $where[]  = "r.payment_status = ?";
+        $params[] = 'Payment Submitted';
+    } else {
+        $where[]  = "r.request_status = ?";
+        $params[] = $filter;
+    }
 }
 
 if (!empty($search)) {
@@ -142,7 +171,7 @@ if (isset($_GET['id'])) {
     $manage_items = $stmt->fetchAll();
 }
 
-$filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Cancelled'];
+$filters = ['All', 'Submitted', 'Being Processed', 'Ready for Pickup', 'Claimed', 'Cancelled', 'Awaiting Verification'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -222,27 +251,7 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
 </head>
 <body>
 
-<div class="sidebar">
-    <div class="sidebar-brand">
-        <img src="../assets/images/pup-logo.png" alt="PUP" onerror="this.style.display='none'">
-        <div class="sidebar-brand-text">PUP e-DocuServe <span>Biñan Campus</span></div>
-    </div>
-    <div class="sidebar-role"><i class="fas fa-user-shield me-2"></i>Admin Panel</div>
-    <nav class="sidebar-nav">
-        <div class="nav-section">Main</div>
-        <a href="index.php"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="manage_requests.php" class="active"><i class="fas fa-file-alt"></i> Manage Requests</a>
-        <a href="walkin_requests.php"><i class="fas fa-walking"></i> Walk-in Payments</a>
-        <div class="nav-section">Users</div>
-        <a href="students.php"><i class="fas fa-users"></i> Students</a>
-        <div class="nav-section">Account</div>
-        <a href="account_settings.php"><i class="fas fa-cog"></i> Account Settings</a>
-    </nav>
-    <div class="sidebar-footer">
-        <div style="margin-bottom:6px;">Logged in as <strong style="color:#ccc;"><?= htmlspecialchars($admin_name) ?></strong></div>
-        <a href="../auth/logout.php"><i class="fas fa-sign-out-alt me-1"></i>Logout</a>
-    </div>
-</div>
+<?php $current_page = 'requests'; include 'sidebar.php'; ?>
 
 <div class="main-content">
     <div class="topbar">
@@ -317,17 +326,14 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                             <td><?= htmlspecialchars($r['purpose']) ?></td>
                             <td>
                                 <?php
-                                $pmap = ['Unpaid' => ['danger','✗ Unpaid'], 'Pending Verification' => ['warning text-dark','⏳ Pending'], 'Paid' => ['success','✔ Paid']];
+                                $pmap = ['Awaiting Payment' => ['danger','✗ Unpaid'], 'Payment Submitted' => ['warning text-dark','⏳ Submitted'], 'Payment Verified' => ['success','✔ Verified']];
                                 $pb = $pmap[$r['payment_status']] ?? ['secondary', $r['payment_status']];
                                 ?>
                                 <span class="badge bg-<?= $pb[0] ?>"><?= $pb[1] ?></span>
-                                <?php if ($r['bank_slip_path'] === 'walkin'): ?>
-                                    <span class="walkin-badge">Walk-in</span>
-                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php
-                                $smap = ['Pending'=>'secondary','Processing'=>'primary','Ready for Pickup'=>'success','Claimed'=>'dark','Cancelled'=>'danger'];
+                                $smap = ['Submitted'=>'secondary','Being Processed'=>'primary','Ready for Pickup'=>'success','Claimed'=>'dark','Cancelled'=>'danger'];
                                 $sc = $smap[$r['request_status']] ?? 'secondary';
                                 ?>
                                 <span class="badge bg-<?= $sc ?>"><?= $r['request_status'] ?></span>
@@ -420,25 +426,29 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                         <div id="mgmt_docs" style="font-size:13px; color:#555;"></div>
                     </div>
 
-                    <div class="mb-3" id="slipRow">
-                        <div style="font-weight:700; margin-bottom:6px;">Bank Slip</div>
-                        <div id="mgmt_slip"></div>
+                    <div class="mb-3">
+                        <div style="font-weight:700; margin-bottom:6px;">Payment</div>
+                        <div class="d-flex gap-2 flex-wrap align-items-center">
+                            <span id="mgmt_pm_badge" class="badge bg-secondary" style="font-size:12px;"></span>
+                            <span id="mgmt_slip_proof"></span>
+                            <span id="mgmt_slip_receipt"></span>
+                        </div>
                     </div>
 
                     <div class="row g-3 mt-1">
                         <div class="col-md-6">
                             <label class="form-label">Payment Status</label>
                             <select name="payment_status" id="mgmt_payment" class="form-select">
-                                <option value="Unpaid">Unpaid</option>
-                                <option value="Pending Verification">Pending Verification</option>
-                                <option value="Paid">Paid</option>
+                                <option value="Awaiting Payment">Awaiting Payment</option>
+                                <option value="Payment Submitted">Payment Submitted</option>
+                                <option value="Payment Verified">Payment Verified</option>
                             </select>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Request Status</label>
                             <select name="request_status" id="mgmt_status" class="form-select">
-                                <option value="Pending">Pending</option>
-                                <option value="Processing">Processing</option>
+                                <option value="Submitted">Submitted</option>
+                                <option value="Being Processed">Being Processed</option>
                                 <option value="Ready for Pickup">Ready for Pickup</option>
                                 <option value="Claimed">Claimed</option>
                                 <option value="Cancelled">Cancelled</option>
@@ -458,6 +468,10 @@ $filters = ['All', 'Pending', 'Processing', 'Ready for Pickup', 'Claimed', 'Canc
                         <div class="col-md-6">
                             <label class="form-label">Total Amount</label>
                             <input type="text" id="mgmt_total" class="form-control" readonly style="background:#f5f5f5;">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Reason for Status Change <span style="color:var(--pup-red);">*</span></label>
+                            <input type="text" name="change_reason" id="mgmt_reason" class="form-control" required placeholder="State the reason for this update...">
                         </div>
                         <div class="col-12">
                             <label class="form-label">Admin Notes <span style="font-weight:400; color:#888;">(visible to student)</span></label>
@@ -513,35 +527,37 @@ function openManage(req) {
 
     syncStatusConstraints();
 
-    let slipHTML = '';
-    if (req.bank_slip_path === 'walkin') {
-        slipHTML = '<span style="color:#e67e22;"><i class="fas fa-walking me-1"></i>Student chose to walk in with physical slip</span>';
-    } else if (req.bank_slip_path) {
-        slipHTML = '<span id="adminSlipLink"><i class="fas fa-spinner fa-spin me-1"></i>Loading slip link…</span>';
-    } else {
-        slipHTML = '<span style="color:#aaa;">No slip uploaded yet.</span>';
-    }
-    document.getElementById('mgmt_slip').innerHTML = slipHTML;
+    // Payment method badge
+    const pmBadge = document.getElementById('mgmt_pm_badge');
+    pmBadge.textContent = req.payment_method || 'Unknown';
+
+    // File links — start loading state
+    const proofEl   = document.getElementById('mgmt_slip_proof');
+    const receiptEl = document.getElementById('mgmt_slip_receipt');
+    proofEl.innerHTML   = req.bank_slip_path ? '<i class="fas fa-spinner fa-spin me-1"></i>Proof…' : '<span style="color:#aaa;font-size:11px;">No proof uploaded</span>';
+    receiptEl.innerHTML = req.receipt_path   ? '<i class="fas fa-spinner fa-spin me-1"></i>Receipt…' : '<span style="color:#aaa;font-size:11px;">No receipt uploaded</span>';
 
     new bootstrap.Modal(document.getElementById('manageModal')).show();
 
-    if (req.bank_slip_path && req.bank_slip_path !== 'walkin') {
+    if (req.bank_slip_path) {
         fetch('../includes/get_slip_url.php?request_id=' + req.id)
             .then(r => r.json())
             .then(data => {
-                const el = document.getElementById('adminSlipLink');
-                if (el) {
-                    if (data.url) {
-                        el.outerHTML = `<a href="${data.url}" target="_blank" class="btn btn-sm btn-outline-secondary" style="font-size:12px;"><i class="fas fa-eye me-1"></i>View Uploaded Slip</a>`;
-                    } else {
-                        el.outerHTML = '<span style="color:#aaa;">Slip unavailable</span>';
-                    }
-                }
+                proofEl.innerHTML = data.url
+                    ? `<a href="${data.url}" target="_blank" class="btn btn-sm btn-outline-secondary" style="font-size:12px;"><i class="fas fa-eye me-1"></i>View Proof</a>`
+                    : '<span style="color:#aaa;font-size:11px;">Proof unavailable</span>';
             })
-            .catch(() => {
-                const el = document.getElementById('adminSlipLink');
-                if (el) el.outerHTML = '<span style="color:#aaa;">Could not load slip</span>';
-            });
+            .catch(() => { proofEl.innerHTML = '<span style="color:#aaa;font-size:11px;">Could not load proof</span>'; });
+    }
+    if (req.receipt_path) {
+        fetch('../includes/get_slip_url.php?request_id=' + req.id + '&type=receipt')
+            .then(r => r.json())
+            .then(data => {
+                receiptEl.innerHTML = data.url
+                    ? `<a href="${data.url}" target="_blank" class="btn btn-sm btn-outline-success" style="font-size:12px;"><i class="fas fa-receipt me-1"></i>View Receipt</a>`
+                    : '<span style="color:#aaa;font-size:11px;">Receipt unavailable</span>';
+            })
+            .catch(() => { receiptEl.innerHTML = '<span style="color:#aaa;font-size:11px;">Could not load receipt</span>'; });
     }
 }
 
@@ -549,22 +565,17 @@ function openManage(req) {
 function syncStatusConstraints() {
     const payment = document.getElementById('mgmt_payment');
     const status  = document.getElementById('mgmt_status');
-    const paid = payment.value === 'Paid';
+    const verified = payment.value === 'Payment Verified';
 
-    // Disable options that require payment when not paid
-    const blockedByUnpaid = ['Processing', 'Ready for Pickup', 'Claimed'];
+    // Disable options that require Payment Verified
+    const blockedByUnverified = ['Being Processed', 'Ready for Pickup', 'Claimed'];
     Array.from(status.options).forEach(opt => {
-        opt.disabled = !paid && blockedByUnpaid.includes(opt.value);
+        opt.disabled = !verified && blockedByUnverified.includes(opt.value);
     });
 
-    // If current selection is now invalid, fall back to Pending
+    // If current selection is now invalid, fall back to Submitted
     if (status.options[status.selectedIndex]?.disabled) {
-        status.value = 'Pending';
-    }
-
-    // Auto-advance to Processing when payment flips to Paid and status is still Pending
-    if (paid && status.value === 'Pending') {
-        status.value = 'Processing';
+        status.value = 'Submitted';
     }
 }
 
@@ -574,10 +585,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     payment.addEventListener('change', syncStatusConstraints);
 
-    // When Claimed is selected, lock payment to Paid
+    // When Claimed is selected, lock payment to Payment Verified
     status.addEventListener('change', function () {
         if (this.value === 'Claimed') {
-            payment.value = 'Paid';
+            payment.value = 'Payment Verified';
             syncStatusConstraints();
         }
     });

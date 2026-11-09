@@ -11,16 +11,16 @@ if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
 $admin_name = $_SESSION['admin_name'];
 
 $total           = $pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
-$pending         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Pending'")->fetchColumn();
-$processing      = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Processing'")->fetchColumn();
+$pending         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Submitted'")->fetchColumn();
+$processing      = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Being Processed'")->fetchColumn();
 $ready           = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
 $claimed         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
-$pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Pending Verification'")->fetchColumn();
+$pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Submitted'")->fetchColumn();
 $total_students  = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 
 $overdue_count = $pdo->query("
     SELECT COUNT(*) FROM requests
-    WHERE request_status IN ('Pending', 'Processing')
+    WHERE request_status IN ('Submitted', 'Being Processed')
       AND tentative_release_date IS NOT NULL
       AND tentative_release_date < CURDATE()
 ")->fetchColumn();
@@ -148,7 +148,7 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
             </div>
             <div class="summary-card card-purple">
                 <div class="card-icon"><i class="fas fa-hourglass-half"></i></div>
-                <div><div class="card-num"><?= $pending_payment ?></div><div class="card-label">Pending Verification</div></div>
+                <div><div class="card-num"><?= $pending_payment ?></div><div class="card-label">Payment Submitted</div></div>
             </div>
             <div class="summary-card card-navy">
                 <div class="card-icon"><i class="fas fa-user-graduate"></i></div>
@@ -222,9 +222,9 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
                                 <tr><td colspan="4" style="text-align:center; color:#aaa; padding:20px;">No requests yet.</td></tr>
                             <?php else: ?>
                             <?php foreach ($recent as $r):
-                                $pmap = ['Unpaid'=>['danger','✗'],'Pending Verification'=>['warning text-dark','⏳'],'Paid'=>['success','✔']];
+                                $pmap = ['Awaiting Payment'=>['danger','✗'],'Payment Submitted'=>['warning text-dark','⏳'],'Payment Verified'=>['success','✔']];
                                 $pb = $pmap[$r['payment_status']] ?? ['secondary','?'];
-                                $smap = ['Pending'=>'secondary','Processing'=>'primary','Ready for Pickup'=>'success','Claimed'=>'dark','Cancelled'=>'danger'];
+                                $smap = ['Submitted'=>'secondary','Being Processed'=>'primary','Ready for Pickup'=>'success','Claimed'=>'dark','Cancelled'=>'danger'];
                                 $sc = $smap[$r['request_status']] ?? 'secondary';
                             ?>
                             <tr>
