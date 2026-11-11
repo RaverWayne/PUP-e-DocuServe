@@ -91,8 +91,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($maintenance) {
                     $error = "The system is currently undergoing scheduled maintenance. Student access is temporarily unavailable.";
-                } elseif ($user['verification_status'] === 'Pending Verification') {
-                    $error = "Your account is pending administrator verification. You will be able to log in once your registration is approved.";
                 } elseif ($user['verification_status'] === 'Rejected') {
                     $error = "Your account registration has been rejected. Please contact the Registrar's Office for assistance.";
                 } elseif (($user['status'] ?? 'Active') !== 'Active' || $user['verification_status'] !== 'Active') {
@@ -428,7 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if (isset($_GET['registered'])): ?>
                 <div class="alert alert-success py-2" role="alert" style="font-size: 13px;">
                     <i class="fas fa-check-circle me-1"></i>
-                    Registration submitted! You can log in now. The Registrar may follow up for verification.
+                    Registration successful! You can now log in with your credentials.
                 </div>
             <?php endif; ?>
 

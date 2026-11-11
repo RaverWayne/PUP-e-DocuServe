@@ -116,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
-                'Active', 'Pending Verification'
+                'Active', 'Active'
             )
         ");
 
@@ -442,9 +442,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                                 aria-required="true"
                                 aria-describedby="emailHint"
                                 value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
-                            <div id="emailHint" class="field-hint warn">
-                                Please DO NOT use the email address of another PUP student.
-                            </div>
                         </div>
                         <div class="mb-3">
                             <label for="confirm_email" class="form-label">Confirm Email <span class="req">*</span></label>

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 session_start();
 require_once '../config/db.php';
 require_once "../includes/session_timeout.php";
@@ -117,7 +117,7 @@ $search         = trim($_GET['search'] ?? '');
 $filter_course  = trim($_GET['course'] ?? '');
 $filter_year    = trim($_GET['year'] ?? '');
 $filter_vstatus = trim($_GET['vstatus'] ?? '');
-$sort           = trim($_GET['sort'] ?? 'oldest');
+$sort           = trim($_GET['sort'] ?? 'newest');
 
 $where  = ["verification_status != 'Deleted'"];
 $params = [];
@@ -148,7 +148,7 @@ $sortOptions = [
     'az'     => 'last_name ASC, first_name ASC',
     'za'     => 'last_name DESC, first_name DESC',
 ];
-$orderBy = $sortOptions[$sort] ?? $sortOptions['oldest'];
+$orderBy = $sortOptions[$sort] ?? $sortOptions['newest'];
 
 $stmt = $pdo->prepare("SELECT * FROM users $whereSQL ORDER BY $orderBy");
 $stmt->execute($params);
@@ -310,9 +310,9 @@ $current_page = 'students';
                                 <div style="font-size:11px; color:#888;"><?= htmlspecialchars($s['email']) ?></div>
                             </td>
                             <td><?= htmlspecialchars($s['student_number'] ?? 'N/A') ?></td>
-                            <td style="max-width:180px; font-size:12px;"><?= htmlspecialchars($s['course'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($s['year_admitted'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($s['program_status'] ?? '—') ?></td>
+                            <td style="max-width:180px; font-size:12px;"><?= htmlspecialchars($s['course'] ?? 'â€”') ?></td>
+                            <td><?= htmlspecialchars($s['year_admitted'] ?? 'â€”') ?></td>
+                            <td><?= htmlspecialchars($s['program_status'] ?? 'â€”') ?></td>
                             <td>
                                 <?php
                                 $vs    = $s['verification_status'] ?? 'Pending Verification';
@@ -371,7 +371,7 @@ $current_page = 'students';
     </div>
 
     <div class="footer-admin">
-        © <?= date('Y') ?> Polytechnic University of the Philippines – Biñan Campus | PUP e-DocuServe Super Admin
+        Â© <?= date('Y') ?> Polytechnic University of the Philippines â€“ BiÃ±an Campus | PUP e-DocuServe Super Admin
     </div>
 </div>
 
@@ -495,17 +495,17 @@ function openStudentProfile(s) {
     document.getElementById('spStatusBadge').innerHTML = '<span class="badge bg-' + (vsMap[s.verification_status] || 'secondary') + '">' + (s.verification_status || '') + '</span>';
     document.getElementById('spName').textContent       = (s.last_name + ', ' + s.first_name + (s.middle_name && s.middle_name.toUpperCase() !== 'N/A' ? ' ' + s.middle_name : '')).toUpperCase();
     document.getElementById('spStudentNum').textContent = s.student_number || 'N/A';
-    document.getElementById('spCourse').textContent     = s.course || '—';
-    document.getElementById('spEmail').textContent      = s.email || '—';
-    document.getElementById('spMobile').textContent     = s.mobile_number || '—';
-    document.getElementById('spDob').textContent        = s.date_of_birth || '—';
-    document.getElementById('spAddress').textContent    = s.address || '—';
-    document.getElementById('spYear').textContent       = s.year_admitted || '—';
-    document.getElementById('spAdmitted').textContent   = s.admitted_as || '—';
-    document.getElementById('spProgram').textContent    = s.program_status || '—';
-    document.getElementById('spHS').textContent         = s.high_school ? (s.high_school + (s.hs_year_grad ? ' (' + s.hs_year_grad + ')' : '')) : '—';
-    document.getElementById('spElem').textContent       = s.elementary ? (s.elementary + (s.elem_year_grad ? ' (' + s.elem_year_grad + ')' : '')) : '—';
-    document.getElementById('spReg').textContent        = s.created_at ? s.created_at.substring(0, 10) : '—';
+    document.getElementById('spCourse').textContent     = s.course || 'â€”';
+    document.getElementById('spEmail').textContent      = s.email || 'â€”';
+    document.getElementById('spMobile').textContent     = s.mobile_number || 'â€”';
+    document.getElementById('spDob').textContent        = s.date_of_birth || 'â€”';
+    document.getElementById('spAddress').textContent    = s.address || 'â€”';
+    document.getElementById('spYear').textContent       = s.year_admitted || 'â€”';
+    document.getElementById('spAdmitted').textContent   = s.admitted_as || 'â€”';
+    document.getElementById('spProgram').textContent    = s.program_status || 'â€”';
+    document.getElementById('spHS').textContent         = s.high_school ? (s.high_school + (s.hs_year_grad ? ' (' + s.hs_year_grad + ')' : '')) : 'â€”';
+    document.getElementById('spElem').textContent       = s.elementary ? (s.elementary + (s.elem_year_grad ? ' (' + s.elem_year_grad + ')' : '')) : 'â€”';
+    document.getElementById('spReg').textContent        = s.created_at ? s.created_at.substring(0, 10) : 'â€”';
     new bootstrap.Modal(document.getElementById('studentProfileModal')).show();
 }
 
