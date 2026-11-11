@@ -1,4 +1,4 @@
-﻿# ── Local environment / secrets ──────────────────────────────
+# ── Local environment / secrets ──────────────────────────────
 # Each teammate's WAMP setup may have different DB credentials.
 .env
 .env.local

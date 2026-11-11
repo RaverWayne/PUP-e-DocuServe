@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 require_once '../config/db.php';
 require_once "../includes/session_timeout.php";
