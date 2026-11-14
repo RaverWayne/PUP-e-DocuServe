@@ -36,7 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $scheme   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
                 $host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                $resetUrl = $scheme . '://' . $host . '/edocuserve/auth/reset_password.php?token=' . $token;
+                $basePath = rtrim(dirname(dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+                $resetUrl = $scheme . '://' . $host . $basePath . '/auth/reset_password.php?token=' . $token;
             }
 
             $html = emailPasswordReset($user['first_name'], $resetUrl, 60);
