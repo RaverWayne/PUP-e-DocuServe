@@ -153,7 +153,7 @@ $current_page = 'notifications';
                 <div class="section-header"><i class="fas fa-users me-2" style="color:var(--sa-color);"></i>Admin Notification Recipients</div>
                 <div class="section-body">
                     <div style="font-size:12px; color:#888; margin-bottom:16px; padding:10px 14px; background:#f0f4ff; border-radius:6px; border-left:4px solid var(--sa-color);">
-                        <i class="fas fa-info-circle me-1"></i> These email addresses receive a notification whenever a student submits a new document request.
+                        <i class="fas fa-info-circle me-1"></i> These email addresses receive a notification whenever a student submits a new document request or completes a new registration.
                     </div>
                     <div class="row g-3">
                         <div class="col-12">

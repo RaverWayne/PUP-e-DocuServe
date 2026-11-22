@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../includes/mailer.php';
 
 $errors  = [];
 $success = false;
@@ -129,6 +130,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $high_school, $hs_year_grad ?: null,
             $elementary, $elem_year_grad ?: null
         ]);
+
+        $newStudent = [
+            'first_name'      => $first_name,
+            'last_name'       => $last_name,
+            'student_number'  => $student_number,
+            'email'           => $email,
+            'course'          => $course,
+            'date_registered' => date('Y-m-d H:i:s'),
+        ];
+        notifyAdminsNewRegistration($pdo, $newStudent);
 
         header("Location: login.php?registered=1");
         exit();

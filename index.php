@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 session_start();
 require_once 'config/db.php';
 
@@ -387,14 +387,14 @@ function steps_list(string $key, array $settings, string $fallback = ''): array 
                 <ol style="font-size: 14px; line-height: 2.1; padding-left: 20px;">
                     <?php
                     $modal_steps = steps_list('landing_instructions_steps', $settings,
-                        "Click Register and fill out your personal and educational information.\n" .
-                        "Log in using your registered email and password.\n" .
-                        "Go to New Request and select the documents you need.\n" .
-                        "Note the total amount and pay through your bank. Keep the bank slip.\n" .
-                        "Upload a clear photo or scan of your bank slip in the system.\n" .
-                        "Wait for the registrar to verify your payment. You will be notified via email.\n" .
-                        "Once your documents are ready, you will receive an email notification.\n" .
-                        "Claim your documents at the Registrar's Office, PUP Binan Campus."
+                        "Register and log in — your account is activated immediately.\n" .
+                        "Go to New Request, select your documents, choose a payment method (Direct Payment, GCash, or Bank Deposit), and confirm your order.\n" .
+                        "Pay using your chosen method. For GCash or Bank Deposit, go to the Cashier's Office with your proof of payment to receive a stamped official receipt.\n" .
+                        "Upload your proof of payment (GCash screenshot or bank deposit slip) in the Requests tab.\n" .
+                        "Upload your stamped official receipt to complete your payment submission.\n" .
+                        "The Registrar will verify your payment. You will be notified by email at each status update.\n" .
+                        "Once your documents are ready, you will receive a Ready for Pickup email notification.\n" .
+                        "Visit the Registrar's Office with a valid ID and your control number to claim your documents."
                     );
                     foreach ($modal_steps as $step): ?>
                         <li><?= htmlspecialchars($step) ?></li>

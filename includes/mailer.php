@@ -288,6 +288,54 @@ function notifyAdminsNewRequest(PDO $pdo, array $request, array $student): void
     }
 }
 
+// Template: Admin New Registration Notification
+function emailAdminNewRegistration(array $student): string
+{
+    $host        = isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '';
+    $studentName = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? ''));
+    $body = '
+      <h2 style="color:#1a237e;margin:0 0 16px;">New Student Registration</h2>
+      <p style="color:#333;line-height:1.6;">A new student account has been registered. Here are the details:</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;font-size:13px;">
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;width:180px;">Student Name:</td>
+            <td style="padding:6px 0;color:#333;font-weight:700;">' . htmlspecialchars($studentName) . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Student Number:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($student['student_number'] ?? '') . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Email:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($student['email'] ?? '') . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Course:</td>
+            <td style="padding:6px 0;color:#333;">' . htmlspecialchars($student['course'] ?? '') . '</td></tr>
+        <tr><td style="padding:6px 0;color:#555;font-weight:600;">Date Registered:</td>
+            <td style="padding:6px 0;color:#333;">' . date('F d, Y h:i A', strtotime($student['date_registered'] ?? 'now')) . '</td></tr>
+      </table>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="' . $host . '/edocuserve/admin/students.php" style="background:#1a237e;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">View Students</a>
+      </div>';
+    return emailWrap('New Student Registration — PUP e-DocuServe', $body);
+}
+
+function notifyAdminsNewRegistration(PDO $pdo, array $student): void
+{
+    try {
+        $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ('notify_on_new_request','notification_recipients')");
+        $cfg  = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $cfg[$row['setting_key']] = $row['setting_value'];
+        }
+        if (($cfg['notify_on_new_request'] ?? '1') === '0') return;
+        $raw = $cfg['notification_recipients'] ?? '';
+        if (trim($raw) === '') return;
+        $emails  = array_filter(array_map('trim', preg_split('/[\s,;]+/', $raw)));
+        $subject = 'New Student Registration — ' . ($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '');
+        $html    = emailAdminNewRegistration($student);
+        foreach ($emails as $email) {
+            sendMail($pdo, $email, '', $subject, $html);
+        }
+    } catch (\Throwable $e) {
+        error_log('[mailer] notifyAdminsNewRegistration failed: ' . $e->getMessage());
+    }
+}
+
 // Template: Password Reset
 function emailPasswordReset(string $firstName, string $resetUrl, int $expiryMinutes = 60): string
 {
