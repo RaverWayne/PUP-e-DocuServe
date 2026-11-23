@@ -28,36 +28,54 @@ $announcements = $pdo->query("SELECT * FROM announcements WHERE is_active = 1 OR
 
 $upload_success = false;
 $upload_error   = '';
+$max_size       = 5 * 1024 * 1024; // 5MB
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
+// POST bigger than post_max_size: PHP empties $_POST and $_FILES
+$post_overflow = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && empty($_POST) && empty($_FILES)
+    && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0;
+
+if ($post_overflow) {
+    $upload_error = "The file is too large. Maximum allowed size is 5MB.";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
     $file      = $_FILES['profile_photo'];
-    $allowed   = ['image/jpeg', 'image/png', 'image/jpg'];
-    $max_size  = 2 * 1024 * 1024;
     $ext_check = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
-    if (!in_array($file['type'], $allowed) || !in_array($ext_check, ['jpg','jpeg','png'])) {
-        $upload_error = "Only JPG and PNG files are allowed.";
-    } elseif (!in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), ['image/jpeg','image/png'])) {
-        $upload_error = "The uploaded file's content doesn't match a valid image.";
+    if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
+        $upload_error = "The file is too large. Maximum allowed size is 5MB.";
+    } elseif ($file['error'] === UPLOAD_ERR_NO_FILE) {
+        $upload_error = "Please choose a file to upload.";
+    } elseif ($file['error'] !== UPLOAD_ERR_OK) {
+        $upload_error = "Upload failed. Please try again.";
     } elseif ($file['size'] > $max_size) {
-        $upload_error = "File size must not exceed 2MB.";
+        $upload_error = "The file is too large. Maximum allowed size is 5MB.";
+    } elseif (!in_array($ext_check, ['jpg', 'jpeg', 'png'])
+        || !in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), ['image/jpeg', 'image/png'])) {
+        $upload_error = "Only JPG and PNG files are allowed.";
     } else {
         $cloudinary = getCloudinary();
         if ($cloudinary !== null) {
             try {
+                $oldPhoto = $user['profile_photo'] ?? '';
+
                 $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
                     'folder'          => 'edocuserve/profiles/students',
                     'type'            => 'upload',
-                    'public_id'       => 'student_' . $user_id,
+                    'public_id'       => 'student_' . $user_id . '_' . time(), // unique = no stale cache
                     'resource_type'   => 'image',
-                    'overwrite'       => true,
-                    'allowed_formats' => ['jpg','jpeg','png'],
+                    'allowed_formats' => ['jpg', 'jpeg', 'png'],
                 ]);
                 $savedPath = $uploadResult['public_id'];
                 $pdo->prepare("UPDATE users SET profile_photo = ? WHERE id = ?")->execute([$savedPath, $user_id]);
                 $user['profile_photo'] = $savedPath;
                 $upload_success = true;
+
+                // Remove the previous Cloudinary photo (best effort)
+                if ($oldPhoto && strpos($oldPhoto, 'edocuserve/') === 0 && $oldPhoto !== $savedPath) {
+                    try { $cloudinary->uploadApi()->destroy($oldPhoto, ['invalidate' => true]); } catch (\Exception $e) {}
+                }
             } catch (\Exception $e) {
+                error_log('Profile upload failed: ' . $e->getMessage());
                 $upload_error = "Failed to upload photo. Please try again.";
             }
         } else {
@@ -186,6 +204,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
         .photo-box img { width: 100%; height: 100%; object-fit: cover; }
         .photo-box .no-photo { color: #aaa; font-size: 40px; }
         .btn-upload {
+            .upload-hint { font-size: 11px; color: #999; margin-top: 5px; line-height: 1.3; }
             background: #555; color: white; border: none;
             padding: 4px 0; border-radius: 4px; font-size: 11px;
             cursor: pointer; width: 100%; transition: background 0.2s;
@@ -400,12 +419,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['profile_photo'])) {
                             <i class="fas fa-user no-photo"></i>
                         <?php endif; ?>
                     </div>
-                    <form method="POST" enctype="multipart/form-data">
-                        <input type="file" name="profile_photo" id="photoInput" accept="image/*" style="display:none;" onchange="this.form.submit()">
-                        <button type="button" class="btn-upload" onclick="document.getElementById('photoInput').click()">
-                            <i class="fas fa-camera me-1"></i> Upload
-                        </button>
-                    </form>
+                    <form method="POST" enctype="multipart/form-data" id="photoForm">
+    <input type="file" name="profile_photo" id="photoInput" accept=".jpg,.jpeg,.png,image/jpeg,image/png" style="display:none;">
+    <button type="button" class="btn-upload" onclick="document.getElementById('photoInput').click()">
+        <i class="fas fa-camera me-1"></i> Upload
+    </button>
+    <div class="upload-hint">JPG/PNG only, max 5MB.</div>
+</form>
+<script>
+document.getElementById('photoInput').addEventListener('change', function () {
+    const f = this.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) {
+        alert('The file is too large. Maximum allowed size is 5MB.');
+        this.value = '';
+        return;
+    }
+    if (!/\.(jpe?g|png)$/i.test(f.name)) {
+        alert('Only JPG and PNG files are allowed.');
+        this.value = '';
+        return;
+    }
+    document.getElementById('photoForm').submit();
+});
+</script>
                 </div>
 
             </div>
