@@ -3,8 +3,25 @@ session_start();
 require_once '../config/db.php';
 require_once '../includes/mailer.php';
 
-$errors  = [];
-$success = false;
+$errors = [];
+
+$current_year = date('Y');
+$years        = range($current_year, 2010);
+
+$courses = [
+    'BACHELOR OF SCIENCE IN PSYCHOLOGY',
+    'BACHELOR OF SECONDARY EDUCATION MAJOR IN ENGLISH',
+    'BACHELOR OF SECONDARY EDUCATION MAJOR IN SOCIAL STUDIES',
+    'BACHELOR OF ELEMENTARY EDUCATION',
+    'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY',
+    'BACHELOR OF SCIENCE IN COMPUTER ENGINEERING',
+    'BACHELOR OF SCIENCE IN INDUSTRIAL ENGINEERING',
+    'BACHELOR OF SCIENCE IN BUSINESS ADMINISTRATION MAJOR IN HUMAN RESOURCE MANAGEMENT',
+    'DIPLOMA IN COMPUTER ENGINEERING TECHNOLOGY',
+    'DIPLOMA IN INFORMATION TECHNOLOGY',
+];
+
+$suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $student_number  = trim($_POST['student_number'] ?? '');
@@ -18,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $middle_name     = trim($_POST['middle_name'] ?? '');
     $suffix_select   = $_POST['suffix_select'] ?? '';
     $suffix_custom   = trim($_POST['suffix_custom'] ?? '');
-    $dob             = $_POST['date_of_birth'] ?? '';
+    $dob             = trim($_POST['date_of_birth'] ?? '');
     $address         = trim($_POST['address'] ?? '');
     $program_status  = $_POST['program_status'] ?? 'Undergraduate';
     $course          = trim($_POST['course'] ?? '');
@@ -93,76 +110,95 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = "Middle name is required. Enter \"N/A\" if you have no middle name.";
     }
 
+    // Date of birth: must be a real Y-m-d date with a 4-digit year
     if (empty($dob)) {
         $errors[] = "Date of birth is required.";
+    } else {
+        $d     = DateTime::createFromFormat('Y-m-d', $dob);
+        $valid = $d && $d->format('Y-m-d') === $dob;
+
+        if (!$valid) {
+            $errors[] = "Date of birth is invalid. Please use a 4-digit year.";
+        } elseif ($d > new DateTime('today')) {
+            $errors[] = "Date of birth cannot be in the future.";
+        } elseif ((int)$d->format('Y') < 1920) {
+            $errors[] = "Date of birth year must be 1920 or later.";
+        }
     }
 
-    if (empty($address))      $errors[] = "Permanent address is required.";
-    if (empty($course))       $errors[] = "Course/Program is required.";
+    if (empty($address)) $errors[] = "Permanent address is required.";
+
+    if (empty($course)) {
+        $errors[] = "Course/Program is required.";
+    } elseif (!in_array($course, $courses, true)) {
+        $errors[] = "Please select a valid Course/Program.";
+    }
+
+    if (empty($year_admitted)) {
+        $errors[] = "Year admitted is required.";
+    }
 
     if (empty($errors)) {
-        $hashed_password = password_hash($password, PASSWORD_BCRYPT);
+        try {
+            $hashed_password = password_hash($password, PASSWORD_BCRYPT);
 
-        $stmt = $pdo->prepare("
-            INSERT INTO users (
-                student_number, last_name, first_name, middle_name, suffix,
-                email, password, date_of_birth, address,
-                mobile_number, course,
-                year_admitted, admitted_as, program_status,
-                high_school, hs_year_grad, elementary, elem_year_grad,
-                status, verification_status
-            ) VALUES (
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, ?,
-                ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?,
-                'Active', 'Active'
-            )
-        ");
+            $stmt = $pdo->prepare("
+                INSERT INTO users (
+                    student_number, last_name, first_name, middle_name, suffix,
+                    email, password, date_of_birth, address,
+                    mobile_number, course,
+                    year_admitted, admitted_as, program_status,
+                    high_school, hs_year_grad, elementary, elem_year_grad,
+                    status, verification_status
+                ) VALUES (
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    'Active', 'Active'
+                )
+            ");
 
-        $stmt->execute([
-            $student_number, $last_name, $first_name, $middle_name,
-            $suffix_final ?: null,
-            $email, $hashed_password, $dob, $address,
-            $mobile, $course,
-            $year_admitted ?: null, $admitted_as, $program_status,
-            $high_school, $hs_year_grad ?: null,
-            $elementary, $elem_year_grad ?: null
-        ]);
+            $stmt->execute([
+                $student_number, $last_name, $first_name, $middle_name,
+                $suffix_final ?: null,
+                $email, $hashed_password, $dob, $address,
+                $mobile, $course,
+                $year_admitted ?: null, $admitted_as, $program_status,
+                $high_school, $hs_year_grad ?: null,
+                $elementary, $elem_year_grad ?: null
+            ]);
+        } catch (PDOException $e) {
+            error_log('Registration insert failed: ' . $e->getMessage());
+            if ($e->getCode() === '23000') {
+                $errors[] = "This Student Number or email is already registered.";
+            } else {
+                $errors[] = "Registration failed. Please check your details and try again.";
+            }
+        }
 
-        $newStudent = [
-            'first_name'      => $first_name,
-            'last_name'       => $last_name,
-            'student_number'  => $student_number,
-            'email'           => $email,
-            'course'          => $course,
-            'date_registered' => date('Y-m-d H:i:s'),
-        ];
-        notifyAdminsNewRegistration($pdo, $newStudent);
+        if (empty($errors)) {
+            // A mail/notification failure must never block registration
+            try {
+                $newStudent = [
+                    'first_name'      => $first_name,
+                    'last_name'       => $last_name,
+                    'student_number'  => $student_number,
+                    'email'           => $email,
+                    'course'          => $course,
+                    'date_registered' => date('Y-m-d H:i:s'),
+                ];
+                notifyAdminsNewRegistration($pdo, $newStudent);
+            } catch (Throwable $e) {
+                error_log('Admin notification failed: ' . $e->getMessage());
+            }
 
-        header("Location: login.php?registered=1");
-        exit();
+            header("Location: login.php?registered=1");
+            exit();
+        }
     }
 }
-
-$current_year = date('Y');
-$years        = range($current_year, 2010);
-
-$courses = [
-    'BACHELOR OF SCIENCE IN PSYCHOLOGY',
-    'BACHELOR OF SECONDARY EDUCATION MAJOR IN ENGLISH',
-    'BACHELOR OF SECONDARY EDUCATION MAJOR IN SOCIAL STUDIES',
-    'BACHELOR OF ELEMENTARY EDUCATION',
-    'BACHELOR OF SCIENCE IN INFORMATION TECHNOLOGY',
-    'BACHELOR OF SCIENCE IN COMPUTER ENGINEERING',
-    'BACHELOR OF SCIENCE IN INDUSTRIAL ENGINEERING',
-    'BACHELOR OF SCIENCE IN BUSINESS ADMINISTRATION MAJOR IN HUMAN RESOURCE MANAGEMENT',
-    'DIPLOMA IN COMPUTER ENGINEERING TECHNOLOGY',
-    'DIPLOMA IN INFORMATION TECHNOLOGY',
-];
-
-$suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -426,7 +462,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
         </div>
     <?php endif; ?>
 
-    <?php if (!$success): ?>
     <form method="POST" action="">
         <div class="row g-4">
 
@@ -529,8 +564,8 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                             <select name="course" class="form-select">
                                 <option value="">-- Select Course --</option>
                                 <?php foreach ($courses as $c): ?>
-                                    <option value="<?= $c ?>" <?= (isset($_POST['course']) && $_POST['course'] === $c) ? 'selected' : '' ?>>
-                                        <?= $c ?>
+                                    <option value="<?= htmlspecialchars($c) ?>" <?= (isset($_POST['course']) && $_POST['course'] === $c) ? 'selected' : '' ?>>
+                                        <?= htmlspecialchars($c) ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -653,6 +688,7 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
                         <div class="mb-3">
                             <label class="form-label">Date of Birth <span class="req">*</span></label>
                             <input type="date" name="date_of_birth" class="form-control"
+                                min="1920-01-01" max="<?= date('Y-m-d') ?>"
                                 value="<?= htmlspecialchars($_POST['date_of_birth'] ?? '') ?>">
                         </div>
 
@@ -688,7 +724,6 @@ $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
             </div><!-- /RIGHT COLUMN -->
         </div>
     </form>
-    <?php endif; ?>
 
 </div><!-- /register-wrapper -->
 

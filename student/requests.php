@@ -25,12 +25,30 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
 
+if (!$user) {
+    session_unset();
+    session_destroy();
+    header("Location: ../auth/login.php");
+    exit();
+}
+
 $upload_success = false;
 $upload_error   = '';
 $cancel_success = false;
 $cancel_error   = '';
+$max_size       = 10 * 1024 * 1024; // 10MB
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_request_id'])) {
+// POST bigger than post_max_size: PHP empties $_POST and $_FILES, which also
+// makes csrf_verify() fail. Detect it first and show a clear message instead.
+$post_overflow = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && empty($_POST) && empty($_FILES)
+    && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0;
+
+if ($post_overflow) {
+    $upload_error = "The file is too large. Maximum allowed size is 10MB.";
+}
+
+if (!$post_overflow && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_request_id'])) {
     csrf_verify();
     $cancel_id     = intval($_POST['cancel_request_id']);
     $cancel_reason = trim($_POST['cancel_reason'] ?? '');
@@ -52,13 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_request_id']))
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
+if (!$post_overflow && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
     csrf_verify();
     $request_id  = intval($_POST['request_id'] ?? 0);
     $upload_type = $_POST['upload_type'] ?? 'proof'; // 'proof' → bank_slip_path, 'receipt' → receipt_path
     $file        = $_FILES['bank_slip'];
     $allowed     = ['image/jpeg', 'image/jpg', 'image/png'];
-    $max_size    = 10 * 1024 * 1024;
     $ext_check   = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
     $stmt = $pdo->prepare("SELECT * FROM requests WHERE id = ? AND user_id = ?");
@@ -67,12 +84,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['bank_slip'])) {
 
     if (!$req) {
         $upload_error = "Invalid request.";
+    } elseif ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
+        $upload_error = "The file is too large. Maximum allowed size is 10MB.";
+    } elseif ($file['error'] === UPLOAD_ERR_NO_FILE) {
+        $upload_error = "Please choose a file to upload.";
+    } elseif ($file['error'] !== UPLOAD_ERR_OK) {
+        $upload_error = "Upload failed. Please try again.";
+    } elseif ($file['size'] > $max_size) {
+        $upload_error = "The file is too large. Maximum allowed size is 10MB.";
     } elseif (!in_array($file['type'], $allowed) || !in_array($ext_check, ['jpg', 'jpeg', 'png'])) {
-        $upload_error = "Only JPG/JPEG files are allowed.";
+        $upload_error = "Only JPG and PNG files are allowed.";
     } elseif (!in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), ['image/jpeg', 'image/png'])) {
         $upload_error = "The uploaded file's content doesn't match a valid image.";
-    } elseif ($file['size'] > $max_size) {
-        $upload_error = "File size must not exceed 10MB.";
     } elseif ($upload_type === 'receipt' && empty($req['bank_slip_path']) && in_array($req['payment_method'], ['GCash', 'Bank Deposit (LandBank)'])) {
         $upload_error = "Please upload your proof of payment first before uploading the receipt.";
     } else {
@@ -141,16 +164,16 @@ $stmt = $pdo->prepare("
 $stmt->execute([$user_id]);
 $requests = $stmt->fetchAll();
 
-function statusBadge($status) {
+function paymentBadge(string $status) {
     $map = ['Submitted' => 'secondary', 'Being Processed' => 'primary', 'Ready for Pickup' => 'success', 'Claimed' => 'dark', 'Cancelled' => 'danger'];
     $color = $map[$status] ?? 'secondary';
-    return "<span class='badge bg-{$color}'>{$status}</span>";
+    return "<span class='badge bg-{$color}'>" . htmlspecialchars($status) . "</span>";
 }
 
-function paymentBadge($status) {
+function statusBadge(string $status) {
     $map = ['Awaiting Payment' => ['danger','✗ Unpaid'], 'Payment Submitted' => ['warning text-dark','⏳ Submitted'], 'Payment Verified' => ['success','✔ Verified']];
     $data = $map[$status] ?? ['secondary', $status];
-    return "<span class='badge bg-{$data[0]}'>{$data[1]}</span>";
+    return "<span class='badge bg-{$data[0]}'>" . htmlspecialchars($data[1]) . "</span>";
 }
 ?>
 <!DOCTYPE html>
@@ -164,7 +187,7 @@ function paymentBadge($status) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root { --pup-red: #6D1A1A; --pup-gold: #FFD700; }
-        body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; }
+        body { background: #f0f0f0; font-family: 'Segoe UI', sans-serif; font-size: 13px; min-height: 100vh; display: flex; flex-direction: column; }
         .navbar-pup { background-color: var(--pup-red); padding: 8px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.3); position: sticky; top: 0; z-index: 999; }
         .navbar-pup .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
         .navbar-pup .brand img { height: 38px; }
@@ -177,7 +200,7 @@ function paymentBadge($status) {
         .tabs-bar .nav-link { color: #555; font-size: 13px; padding: 12px 16px; border: none; border-bottom: 3px solid transparent; border-radius: 0; text-decoration: none; display: flex; align-items: center; gap: 6px; }
         .tabs-bar .nav-link:hover { color: var(--pup-red); }
         .tabs-bar .nav-link.active { color: var(--pup-red); border-bottom-color: var(--pup-red); font-weight: 600; }
-        .content-wrapper { max-width: 1100px; margin: 24px auto; padding: 0 16px 40px; }
+        .content-wrapper { width: 100%; max-width: 1100px; margin: 24px auto; padding: 0 16px 40px; flex: 1 0 auto; }
         .section-card { background: white; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
         .section-header { background: #e8e8e8; padding: 10px 16px; font-weight: 600; font-size: 13px; color: #333; border-bottom: 1px solid #ddd; }
         .advisory-box { background: #ffe8e8; border: 1px solid #f5c0c0; border-radius: 6px; padding: 16px 20px; margin-bottom: 16px; text-align: center; }
@@ -201,10 +224,11 @@ function paymentBadge($status) {
         .btn-action.cancel:hover { background: #a93226; }
         .empty-state { text-align: center; padding: 40px; color: #aaa; }
         .empty-state i { font-size: 40px; margin-bottom: 12px; display: block; }
-        .footer-pup { background: #f8f8f8; border-top: 1px solid #ddd; padding: 12px 20px; text-align: center; font-size: 12px; color: #666; margin-top: 20px; }
+        .footer-pup { background: #f8f8f8; border-top: 1px solid #ddd; padding: 12px 20px; text-align: center; font-size: 12px; color: #666; margin-top: auto; }
         .footer-pup a { color: var(--pup-red); text-decoration: none; }
         .modal-header { background: var(--pup-red); color: white; }
         .modal-header .btn-close { filter: invert(1); }
+        .upload-file-error { font-size: 12px; color: #c0392b; margin-top: 6px; display: none; }
 
         @media (max-width: 600px) {
             .requests-table th, .requests-table td { font-size: 12px; padding: 6px 8px; }
@@ -334,10 +358,10 @@ function paymentBadge($status) {
                             <?php elseif ($isCashier && $pstat === 'Awaiting Payment'): ?>
                                 <div style="display:flex; flex-direction:column; gap:5px; align-items:center;">
                                     <button class="btn-action upload"
-                                        onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'receipt', 'Upload Official Receipt')">
+                                        onclick="openUpload(<?= (int)$req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'receipt', 'Upload Official Receipt')">
                                         <i class="fas fa-upload me-1"></i> Upload Receipt
                                     </button>
-                                    <button class="btn-action cancel" onclick="openCancel(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
+                                    <button class="btn-action cancel" onclick="openCancel(<?= (int)$req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
                                         <i class="fas fa-times me-1"></i> Cancel
                                     </button>
                                 </div>
@@ -346,17 +370,17 @@ function paymentBadge($status) {
                                     <?php if (!$hasProof): ?>
                                         <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:2px;">Step 1 of 2</div>
                                         <button class="btn-action upload"
-                                            onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'proof', 'Upload Proof of Payment')">
+                                            onclick="openUpload(<?= (int)$req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'proof', 'Upload Proof of Payment')">
                                             <i class="fas fa-upload me-1"></i> Upload Proof
                                         </button>
-                                        <button class="btn-action cancel" onclick="openCancel(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
+                                        <button class="btn-action cancel" onclick="openCancel(<?= (int)$req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>')">
                                             <i class="fas fa-times me-1"></i> Cancel
                                         </button>
                                     <?php else: ?>
                                         <div style="font-size:11px; color:#27ae60; font-weight:600; margin-bottom:2px;"><i class="fas fa-check me-1"></i>Proof uploaded</div>
                                         <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:2px;">Step 2 of 2</div>
                                         <button class="btn-action upload"
-                                            onclick="openUpload(<?= $req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'receipt', 'Upload Official Receipt')">
+                                            onclick="openUpload(<?= (int)$req['id'] ?>, '<?= htmlspecialchars($req['control_number']) ?>', 'receipt', 'Upload Official Receipt')">
                                             <i class="fas fa-receipt me-1"></i> Upload Receipt
                                         </button>
                                     <?php endif; ?>
@@ -402,14 +426,15 @@ function paymentBadge($status) {
                 <h6 class="modal-title" id="uploadModalTitle"><i class="fas fa-upload me-2"></i>Upload File</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" enctype="multipart/form-data">
+            <form method="POST" enctype="multipart/form-data" id="uploadForm">
                 <?= csrf_field() ?>
                 <div class="modal-body" style="font-size:13px;">
                     <input type="hidden" name="request_id" id="uploadRequestId">
                     <input type="hidden" name="upload_type" id="uploadType" value="proof">
                     <p class="mb-1">Control Number: <strong id="uploadControlNum"></strong></p>
                     <p class="text-muted mb-3" id="uploadHint" style="font-size:12px;">Upload a clear photo or scanned copy of your file.</p>
-                    <input type="file" name="bank_slip" class="form-control" accept=".jpg,.jpeg,.png" required style="font-size:13px;">
+                    <input type="file" name="bank_slip" id="uploadFileInput" class="form-control" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required style="font-size:13px;">
+                    <div id="uploadFileError" class="upload-file-error"></div>
                     <div style="font-size:11px; color:#888; margin-top:4px;">Accepted: JPG, JPEG, PNG. Max file size: 10MB.</div>
                 </div>
                 <div class="modal-footer">
@@ -455,6 +480,15 @@ function paymentBadge($status) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // keep in sync with $max_size in PHP
+
+// Escape text before putting it into innerHTML
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
 function openDetails(req) {
     const statusMap = {
         'Submitted':        '<span class="badge bg-secondary">Submitted</span>',
@@ -469,15 +503,15 @@ function openDetails(req) {
         'Payment Verified':  '<span class="badge bg-success">✔ Verified</span>'
     };
     let html = '<table style="width:100%;font-size:13px;border-collapse:collapse;">';
-    html += row('Control Number', '<strong>' + req.control_number + '</strong>');
-    html += row('Request Status', statusMap[req.request_status] || req.request_status);
-    html += row('Payment Status', payMap[req.payment_status] || req.payment_status);
-    html += row('Payment Method', req.payment_method || '-');
-    html += row('Purpose', req.purpose);
-    html += row('Total Amount', '₱ ' + parseFloat(req.total_amount).toFixed(2));
-    html += row('Date Filed', req.date_filed ? req.date_filed.substring(0,10) : '-');
-    html += row('Date Verified', req.date_verified ? req.date_verified.substring(0,10) : '-');
-    html += row('Tentative Release', req.tentative_release_date || '-');
+    html += row('Control Number', '<strong>' + esc(req.control_number) + '</strong>');
+    html += row('Request Status', statusMap[req.request_status] || esc(req.request_status));
+    html += row('Payment Status', payMap[req.payment_status] || esc(req.payment_status));
+    html += row('Payment Method', esc(req.payment_method || '-'));
+    html += row('Purpose', esc(req.purpose));
+    html += row('Total Amount', '₱ ' + (parseFloat(req.total_amount) || 0).toFixed(2));
+    html += row('Date Filed', req.date_filed ? esc(req.date_filed.substring(0,10)) : '-');
+    html += row('Date Verified', req.date_verified ? esc(req.date_verified.substring(0,10)) : '-');
+    html += row('Tentative Release', esc(req.tentative_release_date || '-'));
     // Proof of payment link
     html += '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:9px 16px;font-weight:600;color:#555;width:160px;background:#fafafa;">Proof of Payment:</td><td style="padding:9px 16px;color:#333;" id="slipCell">';
     if (req.bank_slip_path) {
@@ -490,30 +524,30 @@ function openDetails(req) {
         html += '<span style="color:#aaa;font-size:11px;"><i class="fas fa-spinner fa-spin me-1"></i>Loading…</span>';
     } else { html += '-'; }
     html += '</td></tr>';
-    html += row('Admin Notes', req.admin_notes || '<span style="color:#aaa;">None</span>');
+    html += row('Admin Notes', req.admin_notes ? esc(req.admin_notes) : '<span style="color:#aaa;">None</span>');
     html += '</table>';
     document.getElementById('detailsContent').innerHTML = html;
     const modal = new bootstrap.Modal(document.getElementById('detailsModal'));
     modal.show();
 
     if (req.bank_slip_path) {
-        fetch('get_slip_url.php?request_id=' + req.id)
+        fetch('get_slip_url.php?request_id=' + encodeURIComponent(req.id))
             .then(r => r.json())
             .then(data => {
                 const cell = document.getElementById('slipCell');
                 if (cell) cell.innerHTML = data.url
-                    ? '<a href="' + data.url + '" target="_blank" class="btn-view"><i class="fas fa-eye me-1"></i>View Proof</a>'
+                    ? '<a href="' + esc(data.url) + '" target="_blank" rel="noopener" class="btn-view"><i class="fas fa-eye me-1"></i>View Proof</a>'
                     : '<span style="color:#aaa;font-size:11px;">Unavailable</span>';
             })
             .catch(() => { const c = document.getElementById('slipCell'); if(c) c.innerHTML='<span style="color:#aaa;font-size:11px;">Could not load</span>'; });
     }
     if (req.receipt_path) {
-        fetch('get_slip_url.php?request_id=' + req.id + '&type=receipt')
+        fetch('get_slip_url.php?request_id=' + encodeURIComponent(req.id) + '&type=receipt')
             .then(r => r.json())
             .then(data => {
                 const cell = document.getElementById('receiptCell');
                 if (cell) cell.innerHTML = data.url
-                    ? '<a href="' + data.url + '" target="_blank" class="btn-view"><i class="fas fa-eye me-1"></i>View Receipt</a>'
+                    ? '<a href="' + esc(data.url) + '" target="_blank" rel="noopener" class="btn-view"><i class="fas fa-eye me-1"></i>View Receipt</a>'
                     : '<span style="color:#aaa;font-size:11px;">Unavailable</span>';
             })
             .catch(() => { const c = document.getElementById('receiptCell'); if(c) c.innerHTML='<span style="color:#aaa;font-size:11px;">Could not load</span>'; });
@@ -522,16 +556,64 @@ function openDetails(req) {
 function row(label, value) {
     return `<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:9px 16px;font-weight:600;color:#555;width:160px;background:#fafafa;">${label}:</td><td style="padding:9px 16px;color:#333;">${value}</td></tr>`;
 }
+
+const uploadForm   = document.getElementById('uploadForm');
+const uploadInput  = document.getElementById('uploadFileInput');
+const uploadError  = document.getElementById('uploadFileError');
+const uploadSubmit = document.getElementById('btnUploadSubmit');
+
+function showUploadError(msg) {
+    uploadError.textContent = msg;
+    uploadError.style.display = 'block';
+    uploadSubmit.disabled = true;
+}
+function clearUploadError() {
+    uploadError.textContent = '';
+    uploadError.style.display = 'none';
+    uploadSubmit.disabled = false;
+}
+
+// Returns an error message, or '' if the selected file is fine
+function checkUploadFile() {
+    const f = uploadInput.files[0];
+    if (!f) return '';
+    if (f.size > MAX_UPLOAD_BYTES) return 'The file is too large. Maximum allowed size is 10MB.';
+    if (!/\.(jpe?g|png)$/i.test(f.name)) return 'Only JPG and PNG files are allowed.';
+    return '';
+}
+
+uploadInput.addEventListener('change', function () {
+    const err = checkUploadFile();
+    if (err) {
+        showUploadError(err);
+        this.value = '';
+    } else {
+        clearUploadError();
+    }
+});
+
+uploadForm.addEventListener('submit', function (e) {
+    const err = checkUploadFile();
+    if (err) {
+        e.preventDefault();
+        showUploadError(err);
+        return;
+    }
+    uploadSubmit.disabled = true; // avoid double submit
+});
+
 function openUpload(reqId, controlNum, uploadType, title) {
     document.getElementById('uploadRequestId').value = reqId;
     document.getElementById('uploadType').value = uploadType;
     document.getElementById('uploadControlNum').textContent = controlNum;
-    document.getElementById('uploadModalTitle').innerHTML = '<i class="fas fa-upload me-2"></i>' + (title || 'Upload File');
+    document.getElementById('uploadModalTitle').innerHTML = '<i class="fas fa-upload me-2"></i>' + esc(title || 'Upload File');
     const hints = {
         proof:   'Upload a clear photo or screenshot of your GCash payment or bank deposit slip.',
         receipt: 'Upload a clear photo or scanned copy of your official receipt from the Registrar.'
     };
     document.getElementById('uploadHint').textContent = hints[uploadType] || '';
+    uploadInput.value = '';
+    clearUploadError();
     new bootstrap.Modal(document.getElementById('uploadModal')).show();
 }
 function openCancel(reqId, controlNum) {
@@ -539,14 +621,6 @@ function openCancel(reqId, controlNum) {
     document.getElementById('cancelControlNum').textContent = controlNum;
     new bootstrap.Modal(document.getElementById('cancelModal')).show();
 }
-document.getElementById('uploadModal').addEventListener('show.bs.modal', function () {
-    document.getElementById('btnUploadSubmit').onclick = function (e) {
-        const fileInput = document.querySelector('#uploadModal input[type=file]');
-        if (!fileInput.value) return; // let HTML5 validation handle empty
-        e.preventDefault();
-        e.target.closest('form').submit();
-    };
-});
 </script>
 <?php include '../includes/legal_modals.php'; ?>
 </body>

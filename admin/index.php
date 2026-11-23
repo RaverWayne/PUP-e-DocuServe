@@ -1,24 +1,27 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 require_once '../config/db.php';
 require_once "../includes/session_timeout.php";
 
-if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'admin') {
+if (!isset($_SESSION['admin_id']) || ($_SESSION['admin_role'] ?? '') !== 'admin') {
     header("Location: ../auth/login.php");
     exit();
 }
 
+// Kept because sidebar.php / admin_topbar.php may read these
 $admin_id   = $_SESSION['admin_id'];
-$admin_name = $_SESSION['admin_name'];
+$admin_name = $_SESSION['admin_name'] ?? '';
 
-$total     = $pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
-$pending   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Submitted'")->fetchColumn();
-$processing = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Being Processed'")->fetchColumn();
-$ready     = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
-$claimed   = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
-$pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Submitted'")->fetchColumn();
+$total           = (int)$pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
+$pending         = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Submitted'")->fetchColumn();
+$processing      = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Being Processed'")->fetchColumn();
+$ready           = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
+$claimed         = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
+$pending_payment = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Submitted'")->fetchColumn();
 
-$overdue_count = $pdo->query("
+$overdue_count = (int)$pdo->query("
     SELECT COUNT(*) FROM requests
     WHERE request_status IN ('Submitted', 'Being Processed')
       AND tentative_release_date IS NOT NULL
@@ -282,44 +285,44 @@ $recent = $pdo->query("
                         <?php if (empty($recent)): ?>
                             <tr><td colspan="8" style="text-align:center; color:#aaa; padding:30px;">No requests yet.</td></tr>
                         <?php else: ?>
-                        <?php foreach ($recent as $r): ?>
+                        <?php foreach ($recent as $r):
+                            $student_name = ($r['last_name'] !== null)
+                                ? $r['last_name'] . ', ' . $r['first_name']
+                                : 'Unknown student';
+                            $pmap = [
+                                'Awaiting Payment'  => ['danger', '✗ Unpaid'],
+                                'Payment Submitted' => ['warning text-dark', '⏳ Submitted'],
+                                'Payment Verified'  => ['success', '✔ Verified'],
+                            ];
+                            $pb = $pmap[$r['payment_status']] ?? ['secondary', $r['payment_status']];
+                            $smap = [
+                                'Submitted'        => 'secondary',
+                                'Being Processed'  => 'primary',
+                                'Ready for Pickup' => 'success',
+                                'Claimed'          => 'dark',
+                                'Cancelled'        => 'danger',
+                            ];
+                            $sc = $smap[$r['request_status']] ?? 'secondary';
+                        ?>
                         <tr>
                             <td><strong><?= htmlspecialchars($r['control_number']) ?></strong></td>
-                            <td><?= htmlspecialchars($r['last_name'] . ', ' . $r['first_name']) ?></td>
+                            <td><?= htmlspecialchars($student_name) ?></td>
                             <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                                 <?= htmlspecialchars($r['documents'] ?? 'N/A') ?>
                             </td>
-                            <td><?= htmlspecialchars($r['purpose']) ?></td>
+                            <td><?= htmlspecialchars($r['purpose'] ?? '') ?></td>
                             <td>
-                                <?php
-                                $pmap = [
-                                    'Awaiting Payment'  => ['danger', '✗ Unpaid'],
-                                    'Payment Submitted' => ['warning text-dark', '⏳ Submitted'],
-                                    'Payment Verified'  => ['success', '✔ Verified'],
-                                ];
-                                $pb = $pmap[$r['payment_status']] ?? ['secondary', $r['payment_status']];
-                                ?>
-                                <span class="badge bg-<?= $pb[0] ?>"><?= $pb[1] ?></span>
+                                <span class="badge bg-<?= $pb[0] ?>"><?= htmlspecialchars($pb[1]) ?></span>
                                 <?php if ($r['bank_slip_path'] === 'walkin'): ?>
                                     <span class="walkin-badge">Walk-in</span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php
-                                $smap = [
-                                    'Submitted'        => 'secondary',
-                                    'Being Processed'  => 'primary',
-                                    'Ready for Pickup' => 'success',
-                                    'Claimed'          => 'dark',
-                                    'Cancelled'        => 'danger',
-                                ];
-                                $sc = $smap[$r['request_status']] ?? 'secondary';
-                                ?>
-                                <span class="badge bg-<?= $sc ?>"><?= $r['request_status'] ?></span>
+                                <span class="badge bg-<?= $sc ?>"><?= htmlspecialchars($r['request_status']) ?></span>
                             </td>
                             <td><?= date('m/d/Y', strtotime($r['date_filed'])) ?></td>
                             <td>
-                                <a href="manage_requests.php?id=<?= $r['id'] ?>" class="btn-sm-action btn-manage">
+                                <a href="manage_requests.php?id=<?= (int)$r['id'] ?>" class="btn-sm-action btn-manage">
                                     <i class="fas fa-edit"></i> Manage
                                 </a>
                             </td>

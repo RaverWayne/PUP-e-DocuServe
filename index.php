@@ -1,5 +1,7 @@
 ﻿<?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 require_once 'config/db.php';
 
 if (isset($_SESSION['user_id'])) {
@@ -7,7 +9,7 @@ if (isset($_SESSION['user_id'])) {
     exit();
 }
 if (isset($_SESSION['admin_id'])) {
-    $role = $_SESSION['admin_role'];
+    $role = $_SESSION['admin_role'] ?? 'admin';
     header("Location: " . ($role === 'superadmin' ? 'superadmin/index.php' : 'admin/index.php'));
     exit();
 }
@@ -336,7 +338,7 @@ function steps_list(string $key, array $settings, string $fallback = ''): array 
                 before you visit the office. Know what to bring so your request moves forward without delays.
             </p>
             <div class="teaser-pills">
-                <span class="teaser-pill"><i class="fas fa-check-circle"></i><?= $catalog_count ?> documents currently available</span>
+                <span class="teaser-pill"><i class="fas fa-check-circle"></i><?= (int)$catalog_count ?> documents currently available</span>
                 <span class="teaser-pill"><i class="fas fa-file-invoice-dollar"></i>Fees per PUP Citizen's Charter</span>
                 <span class="teaser-pill"><i class="fas fa-clipboard-check"></i>Submission requirements included</span>
             </div>

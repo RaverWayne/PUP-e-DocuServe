@@ -24,6 +24,14 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch();
 
+// If the account no longer exists, end the session instead of showing warnings
+if (!$user) {
+    session_unset();
+    session_destroy();
+    header("Location: ../auth/login.php");
+    exit();
+}
+
 $announcements = $pdo->query("SELECT * FROM announcements WHERE is_active = 1 ORDER BY created_at DESC")->fetchAll();
 
 $upload_success = false;
@@ -203,8 +211,10 @@ if ($post_overflow) {
         }
         .photo-box img { width: 100%; height: 100%; object-fit: cover; }
         .photo-box .no-photo { color: #aaa; font-size: 40px; }
+
+        /* Fixed: .upload-hint was nested inside .btn-upload before */
+        .upload-hint { font-size: 11px; color: #999; margin-top: 5px; line-height: 1.3; }
         .btn-upload {
-            .upload-hint { font-size: 11px; color: #999; margin-top: 5px; line-height: 1.3; }
             background: #555; color: white; border: none;
             padding: 4px 0; border-radius: 4px; font-size: 11px;
             cursor: pointer; width: 100%; transition: background 0.2s;
@@ -414,35 +424,36 @@ if ($post_overflow) {
                     <?php $photoUrl = getProfileUrl($user['profile_photo'] ?? ''); ?>
                     <div class="photo-box">
                         <?php if ($photoUrl): ?>
-                            <img src="<?= htmlspecialchars($photoUrl) ?>" alt="Profile">
+                            <img src="<?= htmlspecialchars($photoUrl) ?>" alt="Profile"
+                                 onerror="this.style.display='none'; this.parentNode.innerHTML='<i class=&quot;fas fa-user no-photo&quot;></i>';">
                         <?php else: ?>
                             <i class="fas fa-user no-photo"></i>
                         <?php endif; ?>
                     </div>
                     <form method="POST" enctype="multipart/form-data" id="photoForm">
-    <input type="file" name="profile_photo" id="photoInput" accept=".jpg,.jpeg,.png,image/jpeg,image/png" style="display:none;">
-    <button type="button" class="btn-upload" onclick="document.getElementById('photoInput').click()">
-        <i class="fas fa-camera me-1"></i> Upload
-    </button>
-    <div class="upload-hint">JPG/PNG only, max 5MB.</div>
-</form>
-<script>
-document.getElementById('photoInput').addEventListener('change', function () {
-    const f = this.files[0];
-    if (!f) return;
-    if (f.size > 5 * 1024 * 1024) {
-        alert('The file is too large. Maximum allowed size is 5MB.');
-        this.value = '';
-        return;
-    }
-    if (!/\.(jpe?g|png)$/i.test(f.name)) {
-        alert('Only JPG and PNG files are allowed.');
-        this.value = '';
-        return;
-    }
-    document.getElementById('photoForm').submit();
-});
-</script>
+                        <input type="file" name="profile_photo" id="photoInput" accept=".jpg,.jpeg,.png,image/jpeg,image/png" style="display:none;">
+                        <button type="button" class="btn-upload" onclick="document.getElementById('photoInput').click()">
+                            <i class="fas fa-camera me-1"></i> Upload
+                        </button>
+                        <div class="upload-hint">JPG/PNG only, max 5MB.</div>
+                    </form>
+                    <script>
+                    document.getElementById('photoInput').addEventListener('change', function () {
+                        const f = this.files[0];
+                        if (!f) return;
+                        if (f.size > 5 * 1024 * 1024) {
+                            alert('The file is too large. Maximum allowed size is 5MB.');
+                            this.value = '';
+                            return;
+                        }
+                        if (!/\.(jpe?g|png)$/i.test(f.name)) {
+                            alert('Only JPG and PNG files are allowed.');
+                            this.value = '';
+                            return;
+                        }
+                        document.getElementById('photoForm').submit();
+                    });
+                    </script>
                 </div>
 
             </div>

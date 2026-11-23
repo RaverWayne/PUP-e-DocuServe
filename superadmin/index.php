@@ -1,24 +1,27 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 require_once '../config/db.php';
 require_once "../includes/session_timeout.php";
 
-if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
+if (!isset($_SESSION['admin_id']) || ($_SESSION['admin_role'] ?? '') !== 'superadmin') {
     header("Location: ../auth/login.php");
     exit();
 }
 
-$admin_name = $_SESSION['admin_name'];
+// Kept because sidebar.php / admin_topbar.php may read this
+$admin_name = $_SESSION['admin_name'] ?? '';
 
-$total           = $pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
-$pending         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Submitted'")->fetchColumn();
-$processing      = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Being Processed'")->fetchColumn();
-$ready           = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
-$claimed         = $pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
-$pending_payment = $pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Submitted'")->fetchColumn();
-$total_students  = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+$total           = (int)$pdo->query("SELECT COUNT(*) FROM requests")->fetchColumn();
+$pending         = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Submitted'")->fetchColumn();
+$processing      = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Being Processed'")->fetchColumn();
+$ready           = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Ready for Pickup'")->fetchColumn();
+$claimed         = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE request_status = 'Claimed'")->fetchColumn();
+$pending_payment = (int)$pdo->query("SELECT COUNT(*) FROM requests WHERE payment_status = 'Payment Submitted'")->fetchColumn();
+$total_students  = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 
-$overdue_count = $pdo->query("
+$overdue_count = (int)$pdo->query("
     SELECT COUNT(*) FROM requests
     WHERE request_status IN ('Submitted', 'Being Processed')
       AND tentative_release_date IS NOT NULL
@@ -164,14 +167,14 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
             <a href="reports.php" style="text-decoration:none; grid-column: span 1;">
                 <div class="summary-card" style="border-left-color:#1a237e; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
                     <div class="card-icon" style="background:#1a237e;"><i class="fas fa-chart-bar"></i></div>
-                    <div><div style="font-size:13px; font-weight:700; color:#333;">Reports & Analytics</div><div class="card-label">View detailed reports</div></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">Reports &amp; Analytics</div><div class="card-label">View detailed reports</div></div>
                     <i class="fas fa-arrow-right ms-auto" style="color:#1a237e; font-size:14px;"></i>
                 </div>
             </a>
             <a href="manage_requests.php" style="text-decoration:none; grid-column: span 1;">
                 <div class="summary-card" style="border-left-color:#e67e22; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
                     <div class="card-icon" style="background:#e67e22;"><i class="fas fa-file-alt"></i></div>
-                    <div><div style="font-size:13px; font-weight:700; color:#333;">Manage Requests</div><div class="card-label">View & update all requests</div></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">Manage Requests</div><div class="card-label">View &amp; update all requests</div></div>
                     <i class="fas fa-arrow-right ms-auto" style="color:#e67e22; font-size:14px;"></i>
                 </div>
             </a>
@@ -185,7 +188,7 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
             <a href="export.php" style="text-decoration:none; grid-column: span 1;">
                 <div class="summary-card" style="border-left-color:#27ae60; cursor:pointer; transition: box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow=''">
                     <div class="card-icon" style="background:#27ae60;"><i class="fas fa-file-export"></i></div>
-                    <div><div style="font-size:13px; font-weight:700; color:#333;">Export Data</div><div class="card-label">Download Excel & PDF</div></div>
+                    <div><div style="font-size:13px; font-weight:700; color:#333;">Export Data</div><div class="card-label">Download Excel &amp; PDF</div></div>
                     <i class="fas fa-arrow-right ms-auto" style="color:#27ae60; font-size:14px;"></i>
                 </div>
             </a>
@@ -222,6 +225,9 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
                                 <tr><td colspan="4" style="text-align:center; color:#aaa; padding:20px;">No requests yet.</td></tr>
                             <?php else: ?>
                             <?php foreach ($recent as $r):
+                                $student_name = ($r['last_name'] !== null)
+                                    ? $r['last_name'] . ', ' . $r['first_name']
+                                    : 'Unknown student';
                                 $pmap = ['Awaiting Payment'=>['danger','✗'],'Payment Submitted'=>['warning text-dark','⏳'],'Payment Verified'=>['success','✔']];
                                 $pb = $pmap[$r['payment_status']] ?? ['secondary','?'];
                                 $smap = ['Submitted'=>'secondary','Being Processed'=>'primary','Ready for Pickup'=>'success','Claimed'=>'dark','Cancelled'=>'danger'];
@@ -229,9 +235,9 @@ $logs = $pdo->query("SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 5"
                             ?>
                             <tr>
                                 <td><strong style="font-size:12px;"><?= htmlspecialchars($r['control_number']) ?></strong></td>
-                                <td><?= htmlspecialchars($r['last_name'] . ', ' . $r['first_name']) ?></td>
+                                <td><?= htmlspecialchars($student_name) ?></td>
                                 <td><span class="badge bg-<?= $pb[0] ?>"><?= $pb[1] ?></span><?php if ($r['bank_slip_path']==='walkin'): ?> <span class="walkin-badge">WI</span><?php endif; ?></td>
-                                <td><span class="badge bg-<?= $sc ?>"><?= $r['request_status'] ?></span></td>
+                                <td><span class="badge bg-<?= $sc ?>"><?= htmlspecialchars($r['request_status']) ?></span></td>
                             </tr>
                             <?php endforeach; ?>
                             <?php endif; ?>
