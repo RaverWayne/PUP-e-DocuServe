@@ -19,40 +19,58 @@ $stmt = $pdo->prepare("SELECT * FROM admins WHERE id = ?");
 $stmt->execute([$admin_id]);
 $admin = $stmt->fetch();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$max_size = 5 * 1024 * 1024; // 5MB
+
+// POST larger than post_max_size: PHP empties $_POST and $_FILES (CSRF token is lost too)
+$post_overflow = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && empty($_POST) && empty($_FILES)
+    && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0;
+
+if ($post_overflow) {
+    $error = "The file is too large. Maximum allowed size is 5MB.";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
-    if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
-        $file      = $_FILES['profile_photo'];
-        $allowed   = ['image/jpeg', 'image/jpg', 'image/png'];
-        $ext_ok    = in_array(strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)), ['jpg','jpeg','png']);
-        $real_mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
-        if (!in_array($file['type'], $allowed) || !$ext_ok) {
-            $error = "Only JPG/JPEG/PNG images are allowed.";
-        } elseif (!in_array($real_mime, $allowed)) {
-            $error = "The uploaded file's content doesn't match a valid image.";
-        } elseif ($file['size'] > 5 * 1024 * 1024) {
-            $error = "Photo must not exceed 5MB.";
+
+    if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $file = $_FILES['profile_photo'];
+        $ext  = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+        if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
+            $error = "The file is too large. Maximum allowed size is 5MB.";
+        } elseif ($file['error'] !== UPLOAD_ERR_OK) {
+            $error = "Upload failed. Please try again.";
+        } elseif ($file['size'] > $max_size) {
+            $error = "The file is too large. Maximum allowed size is 5MB.";
+        } elseif (!in_array($ext, ['jpg', 'jpeg', 'png'])
+            || !in_array((new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']), ['image/jpeg', 'image/png'])) {
+            $error = "Only JPG and PNG files are allowed.";
         } else {
             $cloudinary = getCloudinary();
             if ($cloudinary !== null) {
                 try {
+                    $oldPhoto = $admin['profile_photo'] ?? '';
+
                     $uploadResult = $cloudinary->uploadApi()->upload($file['tmp_name'], [
                         'folder'          => 'edocuserve/profiles/admins',
                         'type'            => 'upload',
-                        'public_id'       => 'admin_' . $admin_id,
+                        'public_id'       => 'admin_' . $admin_id . '_' . time(),
                         'resource_type'   => 'image',
-                        'overwrite'       => true,
-                        'allowed_formats' => ['jpg','jpeg','png'],
+                        'allowed_formats' => ['jpg', 'jpeg', 'png'],
                     ]);
                     $savedPath = $uploadResult['public_id'];
                     $pdo->prepare("UPDATE admins SET profile_photo = ? WHERE id = ?")->execute([$savedPath, $admin_id]);
                     $admin['profile_photo'] = $savedPath;
                     $success = "Profile photo updated.";
+
+                    if ($oldPhoto && strpos($oldPhoto, 'edocuserve/') === 0 && $oldPhoto !== $savedPath) {
+                        try { $cloudinary->uploadApi()->destroy($oldPhoto, ['invalidate' => true]); } catch (\Exception $e) {}
+                    }
                 } catch (\Exception $e) {
+                    error_log('Admin photo upload failed: ' . $e->getMessage());
                     $error = "Failed to upload photo. Please try again.";
                 }
             } else {
-                $filename = 'admin_' . $admin_id . '_' . time() . '.' . pathinfo($file['name'], PATHINFO_EXTENSION);
+                $filename = 'admin_' . $admin_id . '_' . time() . '.' . $ext;
                 if (!is_dir('../assets/uploads/')) mkdir('../assets/uploads/', 0755, true);
                 if (move_uploaded_file($file['tmp_name'], '../assets/uploads/' . $filename)) {
                     $pdo->prepare("UPDATE admins SET profile_photo = ? WHERE id = ?")->execute([$filename, $admin_id]);
@@ -197,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 Update Profile Photo
                             </label>
                             <div style="display:flex; gap:6px; align-items:center;">
-                                <input type="file" name="profile_photo" accept=".jpg,.jpeg,.png"
+                                <input type="file" name="profile_photo" id="photoInput" accept=".jpg,.jpeg,.png"
                                     class="form-control" style="font-size:12px; padding:4px 8px; width:220px;">
                                 <button type="submit" class="btn-submit" style="padding:5px 14px; font-size:12px;">
                                     <i class="fas fa-upload me-1"></i>Upload
@@ -310,6 +328,19 @@ function checkPasswordComplexity() {
 
 if (pwdInput) pwdInput.addEventListener('input', checkPasswordComplexity);
 if (confirmInput) confirmInput.addEventListener('input', checkPasswordComplexity);
+</script>
+<script>
+document.getElementById('photoInput')?.addEventListener('change', function () {
+    const f = this.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) {
+        alert('The file is too large. Maximum allowed size is 5MB.');
+        this.value = '';
+    } else if (!/\.(jpe?g|png)$/i.test(f.name)) {
+        alert('Only JPG and PNG files are allowed.');
+        this.value = '';
+    }
+});
 </script>
 </body>
 </html>
