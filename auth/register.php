@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/db.php';
 require_once '../includes/mailer.php';
+require_once __DIR__ . '/csrf.php';
 
 $errors = [];
 
@@ -24,6 +25,7 @@ $courses = [
 $suffix_options = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $student_number  = trim($_POST['student_number'] ?? '');
     $email           = trim($_POST['email'] ?? '');
     $confirm_email   = trim($_POST['confirm_email'] ?? '');
@@ -475,6 +477,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php endif; ?>
 
     <form method="POST" action="">
+        <?= csrf_field() ?>
         <div class="row g-4">
 
             <div class="col-md-6">

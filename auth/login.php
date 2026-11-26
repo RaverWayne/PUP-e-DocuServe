@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once __DIR__ . '/csrf.php';
 
 if (isset($_SESSION['user_id'])) {
     header("Location: ../student/index.php");
@@ -47,6 +48,7 @@ if ($ipStatus && $ipStatus['attempt_count'] >= $max_attempts) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
@@ -440,6 +442,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST" action="">
+                <?= csrf_field() ?>
                 <div class="mb-3">
                     <label for="loginEmail" class="form-label">Username: (Email)</label>
                     <input type="email" name="email" id="loginEmail" class="form-control"

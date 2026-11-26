@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/db.php';
 require_once '../includes/mailer.php';
+require_once __DIR__ . '/csrf.php';
 
 if (isset($_SESSION['user_id']))  { header("Location: ../student/index.php"); exit(); }
 if (isset($_SESSION['admin_id'])) { header("Location: ../admin/index.php");   exit(); }
@@ -10,6 +11,7 @@ $success = '';
 $error   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $email = trim($_POST['email'] ?? '');
 
     if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -121,6 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <?php if (!$success): ?>
             <form method="POST" action="">
+                <?= csrf_field() ?>
                 <div class="mb-3">
                     <label for="emailInput" class="form-label">Email Address</label>
                     <input type="email" name="email" id="emailInput" class="form-control"

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once __DIR__ . '/csrf.php';
 
 if (isset($_SESSION['user_id']))  { header("Location: ../student/index.php"); exit(); }
 if (isset($_SESSION['admin_id'])) { header("Location: ../admin/index.php");   exit(); }
@@ -34,6 +35,7 @@ if (empty($token)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
+    csrf_verify();
     $password  = $_POST['password']  ?? '';
     $password2 = $_POST['password2'] ?? '';
 
@@ -161,6 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
                 <?php endif; ?>
 
                 <form method="POST" action="">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
 
                     <div class="mb-3">
