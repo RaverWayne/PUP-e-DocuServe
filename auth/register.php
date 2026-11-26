@@ -181,7 +181,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
             $host      = $_SERVER['HTTP_HOST'] ?? 'localhost';
-            $verifyUrl = $scheme . '://' . $host . '/edocuserve/auth/verify_email.php?token=' . urlencode($token);
+            // Derive base path from current script so this works on both
+            // localhost/edocuserve/ and Railway's root path.
+            $scriptDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
+            $basePath  = rtrim(dirname($scriptDir), '/\\'); // one level up from /auth
+            $verifyUrl = $scheme . '://' . $host . $basePath . '/auth/verify_email.php?token=' . urlencode($token);
 
             // Send verification email — failure must never block the page
             try {
