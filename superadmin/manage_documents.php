@@ -207,15 +207,15 @@ $current_page = 'documents';
                             </select>
                         </div>
                         <div class="col-md-1">
-                            <label class="form-label">Base Days</label>
+                            <label class="form-label">Base Working Days</label>
                             <input type="number" name="processing_days" class="form-control" value="3" min="1" title="Legacy base processing days">
                         </div>
                         <div class="col-md-1">
-                            <label class="form-label">Min Days</label>
+                            <label class="form-label">Min Working Days</label>
                             <input type="number" name="processing_min_days" class="form-control" value="3" min="1">
                         </div>
                         <div class="col-md-1">
-                            <label class="form-label">Max Days</label>
+                            <label class="form-label">Max Working Days</label>
                             <input type="number" name="processing_max_days" class="form-control" value="5" min="1">
                         </div>
                     </div>
@@ -264,7 +264,7 @@ $current_page = 'documents';
                             <th>Document Name</th>
                             <th>Category</th>
                             <th>Price</th>
-                            <th>Processing Time</th>
+                            <th>Working Days</th>
                             <th>Clearance?</th>
                             <th>Description</th>
                             <th>Status</th>
@@ -378,15 +378,15 @@ $current_page = 'documents';
                             <input type="number" name="price" id="editDocPrice" class="form-control" step="0.01" min="0" required>
                         </div>
                         <div class="col-3">
-                            <label class="form-label">Base Days</label>
+                            <label class="form-label">Base Working Days</label>
                             <input type="number" name="processing_days" id="editDocDays" class="form-control" min="1" title="Legacy base processing days">
                         </div>
                         <div class="col-3">
-                            <label class="form-label">Min Days</label>
+                            <label class="form-label">Min Working Days</label>
                             <input type="number" name="processing_min_days" id="editDocMinDays" class="form-control" min="1">
                         </div>
                         <div class="col-3">
-                            <label class="form-label">Max Days</label>
+                            <label class="form-label">Max Working Days</label>
                             <input type="number" name="processing_max_days" id="editDocMaxDays" class="form-control" min="1">
                         </div>
                     </div>

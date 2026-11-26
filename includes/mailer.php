@@ -120,7 +120,7 @@ function emailAccountApproved(string $firstName): string
         You can now log in and submit document requests.
       </p>
       <div style="text-align:center;margin:28px 0;">
-        <a href="' . (isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '') . '/edocuserve/auth/login.php"
+        <a href="' . ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/edocuserve/auth/login.php"
            style="background:#6D1A1A;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">
           Log In Now
         </a>
@@ -266,7 +266,7 @@ function emailAdminNewRequest(array $request, array $student): string
             <td style="padding:6px 0;color:#333;">' . date('F d, Y h:i A', strtotime($request['date_filed'] ?? 'now')) . '</td></tr>
       </table>
       <div style="text-align:center;margin:28px 0;">
-        <a href="' . $host . '/edocuserve/admin/manage_requests.php" style="background:#1a237e;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">View Requests</a>
+        <a href="' . ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/edocuserve/auth/login.php" style="background:#1a237e;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">Log In to Admin Panel</a>
       </div>';
     return emailWrap('New Request — ' . ($request['control_number'] ?? ''), $body);
 }
@@ -288,14 +288,13 @@ function notifyAdminsNewRequest(PDO $pdo, array $request, array $student): void
     }
 }
 
-// Template: Admin New Registration Notification
+// Template: Admin New Registration Notification (plain — no button to avoid broken tracked links)
 function emailAdminNewRegistration(array $student): string
 {
-    $host        = isset($_SERVER['HTTP_HOST']) ? 'http://' . $_SERVER['HTTP_HOST'] : '';
     $studentName = trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? ''));
     $body = '
       <h2 style="color:#1a237e;margin:0 0 16px;">New Student Registration</h2>
-      <p style="color:#333;line-height:1.6;">A new student account has been registered. Here are the details:</p>
+      <p style="color:#333;line-height:1.6;">A new student account has been registered and is pending your approval. Here are the details:</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;font-size:13px;">
         <tr><td style="padding:6px 0;color:#555;font-weight:600;width:180px;">Student Name:</td>
             <td style="padding:6px 0;color:#333;font-weight:700;">' . htmlspecialchars($studentName) . '</td></tr>
@@ -308,9 +307,7 @@ function emailAdminNewRegistration(array $student): string
         <tr><td style="padding:6px 0;color:#555;font-weight:600;">Date Registered:</td>
             <td style="padding:6px 0;color:#333;">' . date('F d, Y h:i A', strtotime($student['date_registered'] ?? 'now')) . '</td></tr>
       </table>
-      <div style="text-align:center;margin:28px 0;">
-        <a href="' . $host . '/edocuserve/admin/students.php" style="background:#1a237e;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">View Students</a>
-      </div>';
+      <p style="color:#888;font-size:12px;line-height:1.6;">Please log in to the admin panel to review and approve or reject this registration.</p>';
     return emailWrap('New Student Registration — PUP e-DocuServe', $body);
 }
 
@@ -361,4 +358,32 @@ function emailPasswordReset(string $firstName, string $resetUrl, int $expiryMinu
         <strong>Security tip:</strong> Never share this link with anyone. PUP staff will never ask for your password.
       </div>';
     return emailWrap('Password Reset — PUP e-DocuServe', $body);
+}
+
+// Template: Email Address Verification (sent before registration data is stored)
+function emailVerifyAddress(string $firstName, string $verifyUrl): string
+{
+    $body = '
+      <h2 style="color:#6D1A1A;margin:0 0 16px;">Verify Your Email Address</h2>
+      <p style="color:#333;line-height:1.6;">Hi <strong>' . htmlspecialchars($firstName) . '</strong>,</p>
+      <p style="color:#333;line-height:1.6;">
+        Thank you for registering on <strong>PUP e-DocuServe</strong>. Before your registration
+        can be reviewed by the Registrar\'s Office, please verify that this is your email address
+        by clicking the button below.
+      </p>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="' . htmlspecialchars($verifyUrl) . '"
+           style="background:#6D1A1A;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:5px;font-weight:600;font-size:14px;display:inline-block;">
+          Verify My Email
+        </a>
+      </div>
+      <p style="color:#888;font-size:12px;line-height:1.6;">
+        This link will expire in <strong>24 hours</strong>. If you did not register on
+        PUP e-DocuServe, you can safely ignore this email.
+      </p>
+      <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:12px 16px;margin:20px 0;font-size:12px;color:#856404;">
+        <strong>Note:</strong> Your account will not be created until you verify this email address.
+        After verification, the Registrar\'s Office will review and approve your account.
+      </div>';
+    return emailWrap('Verify Your Email — PUP e-DocuServe', $body);
 }

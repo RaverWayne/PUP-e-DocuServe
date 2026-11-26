@@ -122,6 +122,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $filter = $_GET['filter'] ?? 'All';
 $search = trim($_GET['search'] ?? '');
+$sort      = trim($_GET['sort'] ?? 'newest');
+$date_from = trim($_GET['date_from'] ?? '');
+$date_to   = trim($_GET['date_to'] ?? '');
 
 $where  = [];
 $params = [];
@@ -142,7 +145,17 @@ if (!empty($search)) {
     $params   = array_merge($params, [$s, $s, $s]);
 }
 
+if (!empty($date_from)) {
+    $where[]  = "DATE(r.date_filed) >= ?";
+    $params[] = $date_from;
+}
+if (!empty($date_to)) {
+    $where[]  = "DATE(r.date_filed) <= ?";
+    $params[] = $date_to;
+}
+
 $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+$orderBy  = ($sort === 'oldest') ? 'r.date_filed ASC' : 'r.date_filed DESC';
 
 $requests = $pdo->prepare("
     SELECT r.*, u.first_name, u.last_name, u.course, u.student_number,
@@ -154,7 +167,7 @@ $requests = $pdo->prepare("
     LEFT JOIN documents d ON ri.document_id = d.id
     $whereSQL
     GROUP BY r.id
-    ORDER BY r.date_filed DESC
+    ORDER BY $orderBy
 ");
 $requests->execute($params);
 $requests = $requests->fetchAll();
@@ -274,14 +287,29 @@ $filters = ['All', 'Submitted', 'Being Processed', 'Ready for Pickup', 'Claimed'
 
         <form method="GET" action="">
             <div class="filter-bar">
+                <?php
+                $extraParams = http_build_query(array_filter([
+                    'search'    => $search,
+                    'sort'      => $sort !== 'newest' ? $sort : '',
+                    'date_from' => $date_from,
+                    'date_to'   => $date_to,
+                ], fn($v) => $v !== ''));
+                ?>
                 <?php foreach ($filters as $f): ?>
-                    <a href="?filter=<?= urlencode($f) ?>&search=<?= urlencode($search) ?>"
+                    <a href="?filter=<?= urlencode($f) ?><?= $extraParams ? '&' . $extraParams : '' ?>"
                        class="filter-btn <?= $filter === $f ? 'active' : '' ?>"><?= $f ?></a>
                 <?php endforeach; ?>
                 <div class="search-box">
+                    <select name="sort" style="font-size:12px; padding:5px 8px; border:1px solid #ccc; border-radius:4px; height:31px;">
+                        <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>>Newest First</option>
+                        <option value="oldest" <?= $sort === 'oldest' ? 'selected' : '' ?>>Oldest First</option>
+                    </select>
+                    <input type="date" name="date_from" value="<?= htmlspecialchars($date_from) ?>" title="From date" style="font-size:12px; padding:5px 8px; border:1px solid #ccc; border-radius:4px;">
+                    <input type="date" name="date_to"   value="<?= htmlspecialchars($date_to) ?>"   title="To date"   style="font-size:12px; padding:5px 8px; border:1px solid #ccc; border-radius:4px;">
                     <input type="text" name="search" placeholder="Search name or control no." value="<?= htmlspecialchars($search) ?>">
                     <input type="hidden" name="filter" value="<?= htmlspecialchars($filter) ?>">
                     <button type="submit"><i class="fas fa-search"></i></button>
+                    <a href="manage_requests.php" style="font-size:12px; color:#888; text-decoration:none; padding:5px 8px; white-space:nowrap;"><i class="fas fa-times me-1"></i>Clear</a>
                 </div>
             </div>
         </form>

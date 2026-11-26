@@ -93,6 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = "The system is currently undergoing scheduled maintenance. Student access is temporarily unavailable.";
                 } elseif ($user['verification_status'] === 'Rejected') {
                     $error = "Your account registration has been rejected. Please contact the Registrar's Office for assistance.";
+                } elseif ($user['verification_status'] === 'Pending Verification') {
+                    $error = "Your account is pending approval by the Registrar's Office. Please wait for the approval email before attempting to log in.";
                 } elseif (($user['status'] ?? 'Active') !== 'Active' || $user['verification_status'] !== 'Active') {
                     $error = "Your account is not active. Please contact the Registrar's Office.";
                 } else {
@@ -426,7 +428,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if (isset($_GET['registered'])): ?>
                 <div class="alert alert-success py-2" role="alert" style="font-size: 13px;">
                     <i class="fas fa-check-circle me-1"></i>
-                    Registration successful! You can now log in with your credentials.
+                    Your email has been verified. Your account is now pending approval by the Registrar's Office. You will receive an email notification once your account is approved.
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($_GET['verify_sent'])): ?>
+                <div class="alert alert-info py-2" role="alert" style="font-size: 13px;">
+                    <i class="fas fa-envelope me-1"></i>
+                    A verification email has been sent to your email address. Please check your inbox and click the link to complete your registration. The link expires in 24 hours.
                 </div>
             <?php endif; ?>
 

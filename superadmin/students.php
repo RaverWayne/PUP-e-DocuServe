@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/db.php';
 require_once "../includes/session_timeout.php";
+require_once '../includes/mailer.php';
 require_once 'csrf.php';
 
 if (!isset($_SESSION['admin_id']) || $_SESSION['admin_role'] !== 'superadmin') {
@@ -14,6 +15,43 @@ $admin_name = $_SESSION['admin_name'];
 $admin_role = $_SESSION['admin_role'];
 $success = '';
 $error   = '';
+
+// Approve / Reject pending student accounts
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_action'])) {
+    csrf_verify();
+    $target_id = intval($_POST['student_id']);
+    $action    = $_POST['verify_action'];
+
+    $stuStmt = $pdo->prepare("SELECT first_name, email FROM users WHERE id = ?");
+    $stuStmt->execute([$target_id]);
+    $stu = $stuStmt->fetch();
+
+    if ($action === 'approve') {
+        $pdo->prepare("UPDATE users SET verification_status = 'Active' WHERE id = ?")
+            ->execute([$target_id]);
+        $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target)
+                       VALUES (?, ?, ?, ?, ?)")
+            ->execute(["Approved student account", $admin_name, $admin_id, $admin_role, "User ID $target_id"]);
+        $success = "Student account approved.";
+        if ($stu && !empty($stu['email'])) {
+            sendMail($pdo, $stu['email'], $stu['first_name'],
+                'Your PUP e-DocuServe Account Has Been Approved',
+                emailAccountApproved($stu['first_name']));
+        }
+    } elseif ($action === 'reject') {
+        $pdo->prepare("UPDATE users SET verification_status = 'Rejected' WHERE id = ?")
+            ->execute([$target_id]);
+        $pdo->prepare("INSERT INTO system_logs (action, performed_by, performed_by_id, performed_by_role, target)
+                       VALUES (?, ?, ?, ?, ?)")
+            ->execute(["Rejected student account", $admin_name, $admin_id, $admin_role, "User ID $target_id"]);
+        $success = "Student account rejected.";
+        if ($stu && !empty($stu['email'])) {
+            sendMail($pdo, $stu['email'], $stu['first_name'],
+                'Update on Your PUP e-DocuServe Account Registration',
+                emailAccountRejected($stu['first_name']));
+        }
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'deactivate') {
     csrf_verify();
@@ -209,6 +247,7 @@ $current_page = 'students';
 
                     <select name="vstatus">
                         <option value="">All Statuses</option>
+                        <option value="Pending Verification" <?= $filter_vstatus === 'Pending Verification' ? 'selected' : '' ?>>Pending Verification</option>
                         <option value="Active"               <?= $filter_vstatus === 'Active'               ? 'selected' : '' ?>>Active</option>
                         <option value="Rejected"             <?= $filter_vstatus === 'Rejected'             ? 'selected' : '' ?>>Rejected</option>
                     </select>
@@ -283,7 +322,16 @@ $current_page = 'students';
                                         onclick="openStudentProfile(<?= htmlspecialchars(json_encode($s)) ?>)">
                                         <i class="fas fa-eye"></i> View
                                     </button>
-                                    <?php if (($s['verification_status'] ?? '') === 'Active'): ?>
+                                    <?php if (($s['verification_status'] ?? '') === 'Pending Verification'): ?>
+                                        <button class="btn-sm-action btn-enable"
+                                            onclick="openStudentConfirm(<?= $s['id'] ?>, 'approve', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                            <i class="fas fa-check"></i> Approve
+                                        </button>
+                                        <button class="btn-sm-action btn-disable"
+                                            onclick="openStudentConfirm(<?= $s['id'] ?>, 'reject', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
+                                            <i class="fas fa-times"></i> Reject
+                                        </button>
+                                    <?php elseif (($s['verification_status'] ?? '') === 'Active'): ?>
                                         <button class="btn-sm-action btn-disable"
                                             onclick="openStudentConfirm(<?= $s['id'] ?>, 'deactivate', <?= htmlspecialchars(json_encode(strtoupper($s['last_name']) . ', ' . $s['first_name'])) ?>)">
                                             <i class="fas fa-ban"></i> Deactivate
@@ -459,14 +507,22 @@ function openStudentConfirm(id, action, name) {
         deactivate:     'Deactivate the account of <strong>' + name + '</strong>? They will not be able to log in until reactivated.',
         reactivate:     'Reactivate the account of <strong>' + name + '</strong>?',
         delete_student: 'Permanently remove the account of <strong>' + name + '</strong>? Their request history is preserved but they will no longer be able to log in. This cannot be undone.',
+        approve:        'Approve the account of <strong>' + name + '</strong>? They will receive an email notification and will be able to log in.',
+        reject:         'Reject the account of <strong>' + name + '</strong>? They will receive an email notification and will not be able to log in.',
     };
-    const colors = { deactivate:'#e74c3c', reactivate:'#27ae60', delete_student:'#8B0000' };
+    const colors = { deactivate:'#e74c3c', reactivate:'#27ae60', delete_student:'#8B0000', approve:'#27ae60', reject:'#e74c3c' };
     document.getElementById('studentConfirmMsg').innerHTML  = msgs[action] || 'Are you sure?';
     document.getElementById('studentConfirmHeader').style.background = colors[action] || '#e74c3c';
     document.getElementById('scStudentId').value            = id;
     document.getElementById('scSubmitBtn').style.background = colors[action] || '#e74c3c';
-    document.getElementById('scVerifyAction').value = '';
-    document.getElementById('scAction').value       = action;
+    // approve/reject use verify_action field; all others use action field
+    if (action === 'approve' || action === 'reject') {
+        document.getElementById('scVerifyAction').value = action;
+        document.getElementById('scAction').value       = '';
+    } else {
+        document.getElementById('scVerifyAction').value = '';
+        document.getElementById('scAction').value       = action;
+    }
     new bootstrap.Modal(document.getElementById('studentConfirmModal')).show();
 }
 

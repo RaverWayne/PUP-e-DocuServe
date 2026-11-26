@@ -142,35 +142,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $hashed_password = password_hash($password, PASSWORD_BCRYPT);
 
-            $stmt = $pdo->prepare("
-                INSERT INTO users (
-                    student_number, last_name, first_name, middle_name, suffix,
-                    email, password, date_of_birth, address,
-                    mobile_number, course,
-                    year_admitted, admitted_as, program_status,
-                    high_school, hs_year_grad, elementary, elem_year_grad,
-                    status, verification_status
-                ) VALUES (
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?,
-                    ?, ?, ?,
-                    ?, ?, ?, ?,
-                    'Active', 'Active'
-                )
-            ");
-
-            $stmt->execute([
-                $student_number, $last_name, $first_name, $middle_name,
-                $suffix_final ?: null,
-                $email, $hashed_password, $dob, $address,
-                $mobile, $course,
-                $year_admitted ?: null, $admitted_as, $program_status,
-                $high_school, $hs_year_grad ?: null,
-                $elementary, $elem_year_grad ?: null
+            // Store all form data as JSON — do NOT insert into users yet.
+            // The user row is only created after they click the verification link.
+            $formData = json_encode([
+                'student_number' => $student_number,
+                'last_name'      => $last_name,
+                'first_name'     => $first_name,
+                'middle_name'    => $middle_name,
+                'suffix'         => $suffix_final ?: null,
+                'email'          => $email,
+                'password'       => $hashed_password,
+                'date_of_birth'  => $dob,
+                'address'        => $address,
+                'mobile_number'  => $mobile,
+                'course'         => $course,
+                'year_admitted'  => $year_admitted ?: null,
+                'admitted_as'    => $admitted_as,
+                'program_status' => $program_status,
+                'high_school'    => $high_school,
+                'hs_year_grad'   => $hs_year_grad ?: null,
+                'elementary'     => $elementary,
+                'elem_year_grad' => $elem_year_grad ?: null,
             ]);
+
+            $token     = bin2hex(random_bytes(32)); // 64-char secure token
+            $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+            // INSERT or replace if same email re-submits before expiry
+            $pdo->prepare("
+                INSERT INTO email_verifications (token, student_number, email, form_data, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    token          = VALUES(token),
+                    student_number = VALUES(student_number),
+                    form_data      = VALUES(form_data),
+                    expires_at     = VALUES(expires_at)
+            ")->execute([$token, $student_number, $email, $formData, $expiresAt]);
+
+            $scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host      = $_SERVER['HTTP_HOST'] ?? 'localhost';
+            $verifyUrl = $scheme . '://' . $host . '/edocuserve/auth/verify_email.php?token=' . urlencode($token);
+
+            // Send verification email — failure must never block the page
+            try {
+                sendMail($pdo, $email, $first_name,
+                    'Verify Your Email — PUP e-DocuServe',
+                    emailVerifyAddress($first_name, $verifyUrl));
+            } catch (Throwable $e) {
+                error_log('Verification email send failed: ' . $e->getMessage());
+            }
+
         } catch (PDOException $e) {
-            error_log('Registration insert failed: ' . $e->getMessage());
+            error_log('Email verification store failed: ' . $e->getMessage());
             if ($e->getCode() === '23000') {
                 $errors[] = "This Student Number or email is already registered.";
             } else {
@@ -179,22 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (empty($errors)) {
-            // A mail/notification failure must never block registration
-            try {
-                $newStudent = [
-                    'first_name'      => $first_name,
-                    'last_name'       => $last_name,
-                    'student_number'  => $student_number,
-                    'email'           => $email,
-                    'course'          => $course,
-                    'date_registered' => date('Y-m-d H:i:s'),
-                ];
-                notifyAdminsNewRegistration($pdo, $newStudent);
-            } catch (Throwable $e) {
-                error_log('Admin notification failed: ' . $e->getMessage());
-            }
-
-            header("Location: login.php?registered=1");
+            header("Location: login.php?verify_sent=1");
             exit();
         }
     }

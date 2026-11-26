@@ -129,6 +129,27 @@ CREATE TABLE `feedback` (
 ) ENGINE=MyISAM AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+--
+-- Table structure for table `email_verifications`
+--
+
+DROP TABLE IF EXISTS `email_verifications`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `email_verifications` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `token` varchar(64) NOT NULL,
+  `student_number` varchar(20) NOT NULL,
+  `email` varchar(200) NOT NULL,
+  `form_data` text NOT NULL COMMENT 'JSON-encoded registration payload including pre-hashed password',
+  `expires_at` datetime NOT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `token` (`token`),
+  UNIQUE KEY `email` (`email`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 UNLOCK TABLES;
 
 --
