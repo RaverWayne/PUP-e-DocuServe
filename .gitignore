@@ -11,29 +11,13 @@ assets/uploads/*
 !assets/uploads/.gitkeep
 
 # ── Dependencies ─────────────────────────────────────────────
-node_modules/
 vendor/
-
-# ── OS / editor junk ─────────────────────────────────────────
-Thumbs.db
-desktop.ini
-.DS_Store
-*.swp
-.vscode/
-.idea/
-
-# ── Logs (if any get generated) ──────────────────────────────
-*.log
-error_log
 
 # ── Composer binary (local install) ──────────────────────────
 composer.phar
 
 # ── Sensitive / secrets ──────────────────────────────────────
 note.txt
-
-# ── Dev / debug scripts ──────────────────────────────────────
-_gen_bug_report.php
 
 # ── Generated / planning documents ──────────────────────────
 document_request_processing_guide.md
@@ -46,13 +30,20 @@ database/edocuserve_backup.sql
 *.pdf
 *.xlsx
 *.xls
-image.png
 
 # ── IDE / tool directories ────────────────────────────────────
 .claude/
 .kiro/
 
 # ── Generated output directories ─────────────────────────────
-graphify-out/
-"generated contents/"
-"Edocuserve files/"
+generated contents/
+Edocuserve files/
+
+# ── Research / thesis data ────────────────────────────────────
+survey_statistical_data/
+
+# ── Legacy deployment config (removed) ───────────────────────
+# Procfile and nixpacks.toml were used before the Dockerfile-based
+# Railway deploy. Removed so Railway only uses the Dockerfile.
+Procfile
+nixpacks.toml

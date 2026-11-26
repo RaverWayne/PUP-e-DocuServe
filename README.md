@@ -1,145 +1,143 @@
 # PUP e-DocuServe (Release 1.1)
 
-A responsive, containerized web application for streamlined student document requests at PUP Biñan Campus. Replaces the core functionality of the previous "PUP-DocuServe" prototype with a full-stack PHP 8.3 / MySQL 9.1 solution designed for reliable deployment on Railway.
-
-**System Status:** **80% Complete** — Core portals (Student, Registrar, SuperAdmin) are fully functional and deployed (Sprint 2 goal met); Remaining 20% covers optimization, SEO, legal, and robust accessibility polishing (Sprint 3 scope).
+A responsive web application for streamlined student document requests at PUP Biñan Campus. Full-stack PHP 8.3 / MySQL solution deployed on Railway with Cloudinary file storage and Brevo transactional email.
 
 **Production URL:** [https://edocuserve.up.railway.app](https://edocuserve.up.railway.app)
-*(Note: Requires VPN/On-Campus network as per campus security protocol for non-public data)*
 
 ---
 
-## 🛠️ Unified System Status & Completion
+## System Status & Completion
 
-Status is based on the 10 High-Level BRD (Business Requirement Document) Modules used in Sprint 2 for the MVP. Percentages show verified, deployed functionality.
+Status is based on the 10 High-Level BRD Modules from Sprint 2. Percentages reflect verified, deployed functionality as of November 2026.
 
-| Module | BRD Category | System Status | % | Core Deployed Features |
+| Module | BRD Category | Status | % | Notes |
 |:---|:---|:---|:-:|:---|
-| **01** | **Auth & User Mgmt** | Functional | **90%** | BCrypt login, student registration, password reset flows. CSRF + session timeouts on all portals. Login rate limiting active. Only minor registration page edits pending. |
-| **02** | **Student Portal** | Functional | **85%** | Public catalog preview, search/filter catalog. Multi-item requests. Clearance check. Walk-in/Bank Slip/GCash payment flows with proof upload. Status tracking. |
-| **03** | **Admin / Registrar** | Functional | **90%** | Payment verification gate. Queue processing, bulk status transitions. SLA column (3/5/10 days), Admin Name tracking. Student account lifecycle (approval, deactivation). |
-| **04** | **SuperAdmin** | Functional | **90%** | Admin account lifecycle. Comprehensive document catalog CRUD (requires\_clearance control). Public announcements management. Audit logs. System settings with live SMTP/Email config editor. |
-| **05** | **Reports & Export** | Functional | **85%** | Actionable Chart.js (v4.4) dashboards (trends, status, payment breakdown) on Admin/SuperAdmin. Live Excel (.xlsx) and PDF (TCPDF) export endpoints. PDF templates now stored on Cloudinary. |
-| **06** | **Security Hardening** | In Progress | **70%** | App-wide CSRF coverage, session hijacking/fixation controls, bcrypt hashing, security headers (.htaccess), and HTTPS redirect live. Pending full CSRF enforcement on non-form POSTs and DB integrity (Sprint 3 target). |
-| **07** | **Cloud Infra & Mail** | In Progress | **95%** | Production-grade Brevo HTTPS API mail integrated. App reads all `DB_` environment variables with local WAMP fallback. Railway deploy is configuration-agnostic. Final step is minor credential rotation. |
-| **08** | **Container & Deploy** | **Done** | **90%** | Railway production environment is **LIVE** using Dockerfile build. Database migrated to production MySQL. Continuous Deployment pipeline active from `dev` branch. Verified connection to production Cloudinary bucket. |
-| **09** | **Legal & SEO** | In Progress | **30%** | Privacy Policy and Terms of Use modals built. App is functionally ready. Missing full pages for legal clarity, custom 404 handler, and SEO basics (robots.txt, sitemap, meta tags). |
-| **10** | **Responsive & Polish** | Stale | **15%** | Basic mobile compatibility via Bootstrap 5.3 CDN. **MAJOR DEBT:** No mobile sidebar toggle, no production compression for uploaded images, and zero WCAG accessibility auditing. Acknowledged debt for post-MVP. |
-| **Total** | **MVP Release 1.1** | **Deployed** | **~80%** | Weighted average of the above deliverables. Core student process and all three management dashboards are functional and verified in the production environment. |
+| **01** | **Auth & User Mgmt** | Functional | **95%** | BCrypt login, email verification before account creation, student registration, password reset flows. CSRF + session timeouts on all portals. Rate limiting (5 attempts / 15-min lockout, per-IP and per-email). |
+| **02** | **Student Portal** | Functional | **90%** | Public catalog page, search/filter catalog. Multi-item requests with live total. Clearance check. Walk-in/Bank Slip payment flows with Cloudinary slip upload. Status tracking. |
+| **03** | **Admin / Registrar** | Functional | **90%** | Payment verification gate. Queue processing, bulk status transitions. SLA column, Admin Name tracking. Full student account lifecycle (approval, deactivation, deletion, password reset). Notification settings. |
+| **04** | **SuperAdmin** | Functional | **95%** | Admin account lifecycle. Document catalog CRUD with per-document requirements text. Announcements management. Audit logs. System settings including customizable landing page content. Brevo API key management with live test. Notification recipients. |
+| **05** | **Reports & Export** | Functional | **85%** | Chart.js (v4.4) dashboards on Admin/SuperAdmin. Excel (.xlsx via PhpSpreadsheet) and PDF (TCPDF) export. PDF templates stored on Cloudinary. |
+| **06** | **Security Hardening** | Functional | **85%** | CSRF on all student, admin, and superadmin POST forms. Session timeout for all roles. Login rate limiting live. HTTPS redirect, security headers (`X-Frame-Options`, `X-Content-Type-Options`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`) in `.htaccess`. Remaining gap: `manage_requests.php` POST modal does not pass CSRF token. |
+| **07** | **Cloud Infra & Mail** | Functional | **95%** | Brevo HTTPS API integrated. Cloudinary for all file uploads. `config/db.php` reads `DATABASE_URL`, `MYSQL_*` env vars, or `.env` file with WAMP fallback. Admin email alerts on new requests and registrations. |
+| **08** | **Container & Deploy** | Done | **90%** | Railway production environment live via Dockerfile (PHP 8.3-cli). Database on Railway MySQL. Continuous deployment from `dev` branch. Cloudinary bucket connected. |
+| **09** | **Legal & SEO** | In Progress | **30%** | Privacy Policy and Terms of Use modals built. Missing dedicated pages, custom 404, robots.txt, sitemap, and meta tags. |
+| **10** | **Responsive & Polish** | Stale | **15%** | Basic mobile compatibility via Bootstrap 5.3 CDN. No mobile sidebar toggle and no WCAG accessibility audit. Acknowledged debt for post-MVP. |
+| **Total** | **MVP Release 1.1** | **Deployed** | **~85%** | All three management dashboards and the full student request flow are functional and verified in production. |
 
 ---
 
-## 💻 Technical Stack (Release 1.1)
+## Technical Stack
 
-This project has been updated to remove the legacy PHPMailer (SMTP) stack and local file uploads, replacing them with modern, production-agnostic cloud integrations for reliable Railway hosting.
-
-*   **Runtime:** PHP 8.3 (Production via official `php:8.3-cli` image), MySQL 9.1 (Production/Migration), Composer (PHP Dependency Manager). *Zero reliance on system-bundled PHPMailer or obsolete extension files.*
-*   **Database:** 11 core tables (mixed InnoDB/MyISAM storage, no DB-level foreign keys — **migration to InnoDB+FK is Sprint 3 target**). Migrations applied sequentially.
-*   **Email:** Sent strictly via the **Brevo (formerly Sendinblue) Transactional HTTPS API** using cURL. PHPMailer / direct SMTP commands are deleted/deactivated from the codebase to bypass Railway's port limitations.
-*   **Cloud Storage:** All student-uploaded files (Bank Slips, GCash screenshots, Profile Avatars) and SuperAdmin templates are stored and served via **Cloudinary’s Programmable Media** bucket. `assets/uploads/` is used only as a development fallback.
-*   **UI/Frontend:** Bootstrap 5.3 (via CDN), Chart.js 4.4, custom JavaScript, and TCPDF for PDF generation with custom templating. responsive on desktop; stale on critical mobile features (sidebar).
-*   **Containerization:** `Dockerfile` is verified and used for Railway Hobby/Hobby+ deployment, exposing port 8080 and running the built-in PHP server.
-
----
-
-## 🚀 Deployed URLs (Sprint 2/MVP)
-
-Use the credentials provided by the university during testing.
-
-*   **Production:** [https://edocuserve.up.railway.app](https://edocuserve.up.railway.app)
-    *   Public Catalogs & Announcements
-    *   `/auth/login.php` -> Dynamic redirects based on role (Student, Admin, SuperAdmin)
-*   **WAMP Fallback (Development):** Localhost at default WAMP ports. `config/db.php` detects WAMP settings.
+| Layer | Technology |
+|:---|:---|
+| Runtime | PHP 8.3 (Railway via `php:8.3-cli` Docker image) |
+| Database | MySQL 9.1 — 13 tables (mixed InnoDB/MyISAM; DB-level FK migration is a future task) |
+| Email | Brevo Transactional HTTPS API (`curl` → `api.brevo.com`). PHPMailer and direct SMTP removed. |
+| File Storage | Cloudinary Programmable Media (profile photos, bank slips, PDF templates). `assets/uploads/` is local fallback only. |
+| Frontend | Bootstrap 5.3 (CDN, SRI-hashed), Font Awesome 6.4 (CDN), Chart.js 4.4 (CDN, reports only) |
+| PDF | TCPDF 6.x (local vendor copy) |
+| Spreadsheet | PhpSpreadsheet 5.x (via Composer) |
+| Container | Dockerfile — installs `pdo_mysql`, `curl`, `zip`, `gd`; runs `composer install --no-dev` |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 edocuserve/
-├── auth/                  # Auth portal (login, register, forgot/reset password)
-├── student/                # Student portal (requests, account, feedback, walk-in payment)
-│   └── csrf.php            # CSRF token helper for student forms
-├── admin/                  # Registrar panel (requests, students, walk-in)
-│   └── csrf.php             # CSRF token helper for admin forms
-├── superadmin/             # SuperAdmin panel (admins, documents, announcements, settings)
-│   ├── csrf.php             # CSRF token helper
-│   ├── system_settings.php   # Per-section save buttons
-│   ├── reports.php          # Chart.js dashboards
-│   ├── export.php           # Excel (PhpSpreadsheet) / PDF (TCPDF) export
-│   ├── system_logs.php       # Audit trail viewer
-│   ├── manage_admins.php    # Admin CRUD
-│   ├── manage_documents.php # Document catalog CRUD
-│   ├── manage_requests.php  # Request queue manager
-│   ├── announcements.php    # Public announcements
-│   ├── sidebar.php          # Sidebar navigation
-│   └── debug_mail.php       # Email debugging endpoint
-├── includes/               # Shared code
-│   ├── cloudinary.php       # Cloudinary SDK singleton helper
-│   ├── slip_url.php         # Bank slip URL generator (Cloudinary)
-│   ├── profile_url.php      # Profile photo URL generator (Cloudinary)
-│   ├── release_date.php     # TAT/release date calculator (holidays)
-│   ├── session_timeout.php   # Session inactivity check
-│   ├── legal_modals.php      # Privacy/terms Bootstrap modals
-│   └── mailer.php           # Brevo HTTPS API mailer
-├── config/db.php           # DB config (.env loader + WAMP fallback)
+├── auth/                   # Auth portal
+│   ├── login.php           # Unified login (Student / Admin / SuperAdmin) with rate limiting
+│   ├── register.php        # Student self-registration → stores to email_verifications
+│   ├── verify_email.php    # Handles verification link; inserts into users on success
+│   ├── forgot_password.php
+│   ├── reset_password.php
+│   └── csrf.php
+├── student/                # Student portal
+│   ├── new_request.php     # Document request submission
+│   ├── requests.php        # Request list + Cloudinary slip upload + cancel
+│   ├── feedback.php        # Satisfaction survey
+│   ├── get_slip_url.php    # AJAX: Cloudinary signed URL for slip
+│   └── csrf.php
+├── admin/                  # Registrar panel
+│   ├── manage_requests.php # Request queue + status updates + email
+│   ├── students.php        # Student list + account lifecycle
+│   ├── notification_settings.php
+│   ├── sidebar.php
+│   └── csrf.php
+├── superadmin/             # SuperAdmin panel
+│   ├── manage_admins.php
+│   ├── manage_documents.php
+│   ├── announcements.php
+│   ├── reports.php
+│   ├── export.php          # Excel + PDF export
+│   ├── system_logs.php
+│   ├── system_settings.php # All system config + landing page content
+│   ├── notification_settings.php
+│   ├── brevo_test.php      # AJAX: live Brevo API key test
+│   ├── sidebar.php
+│   └── csrf.php
+├── includes/
+│   ├── mailer.php          # sendMail() + 7 email templates
+│   ├── cloudinary.php      # Cloudinary SDK singleton
+│   ├── profile_url.php     # getProfileUrl() helper
+│   ├── slip_url.php        # getSlipUrl() helper
+│   ├── get_profile_url.php # AJAX: signed profile photo URL
+│   ├── get_slip_url.php    # AJAX: signed bank slip URL
+│   ├── admin_topbar.php    # Shared admin/superadmin top-right profile menu
+│   ├── session_timeout.php # 30-min rolling timeout (admin/superadmin)
+│   ├── release_date.php    # PH holiday-aware working-day calculator
+│   ├── legal_modals.php    # Privacy/Terms Bootstrap modals
+│   └── tcpdf/              # TCPDF vendor library
+├── config/
+│   ├── db.php              # PDO connection (DATABASE_URL → MYSQL_* vars → .env → WAMP)
+│   └── db.example.php
 ├── database/
-│   ├── edocuserve.sql       # 11-table schema
-│   ├── migration_sql.sql     # Structured migrations (documents, requests, users, settings)
-│   └── reseed_utf8.php       # SQL charset repair script
+│   └── edocuserve.sql      # 13-table schema + seed data
+├── catalog.php             # Public read-only document catalog (no auth)
+├── index.php               # Public landing page
 ├── Dockerfile              # Railway Docker build (PHP 8.3-cli)
-├── .htaccess               # Security headers, HTTPS redirect, hidden file deny
-├── composer.json           # PhpSpreadsheet + Cloudinary deps
-├── README.md               # This document
-├── generated contents/     # BRD & Technical Specs docs
-│   ├── About the system/
-│   ├── BRD/
-│   └── Technical Specifications/
-└── assets/uploads/         # Local fallback only; production uses Cloudinary
+├── php.ini                 # PHP settings applied in Docker CMD
+└── composer.json           # PhpSpreadsheet + Cloudinary PHP SDK
 ```
 
 ---
 
-## 🌐 Environment Variables
+## Environment Variables
 
-The app reads all configuration from environment variables with local WAMP fallback defaults. For Railway, create an `.env` file or set environment variables. All values are read via `getenv()` in `config/db.php`.
+`config/db.php` resolves database credentials in this order: `DATABASE_URL` / `MYSQL_URL` (full connection string) → individual `MYSQLHOST` / `MYSQLPORT` / `MYSQLDATABASE` / `MYSQLUSER` / `MYSQLPASSWORD` vars → `.env` file → WAMP defaults.
 
-| Variable | Required? | Description | WAMP Default | Railway Default |
-|:---|:---:|:---|:---|:---|
-| `DB_HOST` | Yes* | MySQL host | localhost | Railway managed |
-| `DB_NAME` | Yes* | Database name | edocuserve | Railway managed |
-| `DB_USER` | Yes* | Database user | root | Railway managed |
-| `DB_PASS` | Yes* | Database password | (empty) | Railway managed |
-| `APP_URL` | Yes* | Base URL for links | http://localhost | Your Railway URL |
-| `CLOUDINARY_CLOUD_NAME` | Yes* | Cloudinary cloud name | — | Railway env |
-| `CLOUDINARY_API_KEY` | Yes* | Cloudinary API key | — | Railway env |
-| `CLOUDINARY_API_SECRET` | Yes* | Cloudinary API secret | — | Railway env |
+| Variable | Required | Description |
+|:---|:---:|:---|
+| `DATABASE_URL` or `MYSQL_URL` | Yes* | Full MySQL connection string (Railway injects automatically) |
+| `CLOUDINARY_CLOUD_NAME` | Yes* | Cloudinary cloud name |
+| `CLOUDINARY_API_KEY` | Yes* | Cloudinary API key |
+| `CLOUDINARY_API_SECRET` | Yes* | Cloudinary API secret |
 
-*Required unless using WAMP fallback (local development). In production Railway, these are injected automatically — no manual `.env` needed.
+*Required in production. Not needed for local WAMP development.
 
-**TLS:** Railway Free plan does **not** allow SMTP connections on port 587. That's why email is routed through the Brevo HTTPS API (api.brevo.com), not direct SMTP. PHPMailer and the old `smtp_test/phpmailer` directory have been removed.
-
-**Note:** The `smtp_pass` field in `system_settings` may be empty in production — set it through the admin panel under *Settings → Email → SMTP Pass*, or it will resolve to empty.
+Brevo API key and all other app settings (sender identity, notification recipients, landing page content, etc.) are managed through the SuperAdmin panel and stored in `system_settings` — no environment variable needed for email.
 
 ---
 
-## 🚀 Deployed URLs (Sprint 2/MVP)
+## Deployed URLs
 
-Use the credentials provided by the university during testing.
-
-- **Production:** [https://pup-e-docuserve-production.up.railway.app/](https://pup-e-docuserve-production.up.railway.app/)
-  - Public Catalogs & Announcements
-  - `/auth/login.php` → Dynamic redirect based on role (Student / Admin / SuperAdmin)
-- **WAMP Fallback (Development):** Localhost at default WAMP ports. `config/db.php` auto-detects WAMP settings.
+- **Production:** [https://edocuserve.up.railway.app](https://edocuserve.up.railway.app) — Public catalog, announcements, and login
+- **Login routing:** `/auth/login.php` → redirects by role (Student / Admin / SuperAdmin)
+- **WAMP (local dev):** `http://localhost/edocuserve/` — `config/db.php` auto-detects WAMP
 
 ---
 
-## 🏗️ Sprint 3 & Post-Launch Roadmap
+## Sprint 3 & Post-Launch Roadmap
 
-Core MVP goals for a functional system were met in Sprint 2. The remaining 20% focuses on stabilizing, optimizing, and securing the established application.
-
-1.  **Security:** Full CSRF enforcement on *every* POST endpoint (currently form-only), database migration to full InnoDB tables with proper, transactional Foreign Key constraints.
-2.  **UX/Responsive Debt:** Implement the mobile sidebar toggle for functional administration on small screens and add image compression/pipeline optimization for Cloudinary uploads.
-3.  **SEO & Legal:** Create dedicated `/privacy` and `/terms` URLS (replacing modal), add custom 404, robots.txt, and sitemap. Populate legal boilerplate as provided by university counsel.
-4.  **Accessibility (WCAG):** Preliminary auditing for color contrast and keyboard navigation, specifically on management data tables.
-5.  **Performance:** Audit TCPDF performance, as large bulk PDF generation is a known ceiling ( O(N) PDF generation with no bulk optimization). Mark as `ponytail: custom bulk generation is ceiling`.
+| Priority | Item |
+|:---|:---|
+| Security | Enforce CSRF on `manage_requests.php` POST modal (pass token through JS fetch payload) |
+| Security | Migrate all tables to InnoDB with proper FK constraints |
+| UX | Mobile sidebar toggle for administration on small screens |
+| Legal | Dedicated `/privacy` and `/terms` pages (replace modals) |
+| SEO | `robots.txt`, sitemap, `<meta name="description">`, Open Graph tags on public pages |
+| SEO | Custom 404 handler (`ErrorDocument 404`) |
+| Accessibility | WCAG color contrast and keyboard navigation audit on data tables |
+| Performance | Audit TCPDF bulk PDF generation (O(N), no batching optimization) |
+| Cleanup | Remove or implement the `documentary_stamp` column (always 0) |
+| Future | Wire up the unused `notifications` table for in-app notification tracking |
